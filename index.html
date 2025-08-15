@@ -3,9 +3,9 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no" />
-  <title>Anatomy Viewer — Locked BG #171717 (no outline)</title>
+  <title>Anatomy Viewer — Transparent canvas, off‑white page, improved home tween</title>
   <style>
-    html,body{margin:0;height:100%;background:#171717;color:#eee;font-family:system-ui,Segoe UI,Roboto,Arial,sans-serif}
+    html,body{margin:0;height:100%;background:#f5f5f2;color:#222;font-family:system-ui,Segoe UI,Roboto,Arial,sans-serif}
     #hud{position:fixed;top:10px;right:10px;display:flex;gap:10px;z-index:10;align-items:center}
     .btn{display:inline-flex;align-items:center;gap:8px;background:#222;color:#fff;border:1px solid #333;border-radius:8px;padding:8px 10px;font-size:14px;cursor:pointer}
     .btn:active{transform:translateY(1px)}
@@ -47,31 +47,30 @@
   const DIM_COLOR = 0xbfbfbf;
   const TRANSITION_MS_DIM_OUT = 500;    // 0.5s dim
   const TRANSITION_MS_LIGHT_IN = 1000;  // 1s light
-  const LOCKED_OVERLAY_OPACITY = 0.30;  // 30%
+  const BASE_OVERLAY_OPACITY = 0.12;    // subtle hints when nothing selected
 
   // ---------- DOM ----------
   const canvas = document.getElementById('canvas');
   const resetBtn = document.getElementById('reset');
 
   // ---------- Three.js ----------
-  const renderer = new THREE.WebGLRenderer({ canvas, antialias:true });
+  const renderer = new THREE.WebGLRenderer({ canvas, antialias:true, alpha:true });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio,2));
   renderer.setSize(window.innerWidth, window.innerHeight);
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   renderer.toneMapping = THREE.NoToneMapping;
-  renderer.setClearColor('#171717', 1); // locked BG
+  renderer.setClearColor(0x000000, 0); // transparent canvas, page shows through
 
   const scene = new THREE.Scene();
   const camera = new THREE.PerspectiveCamera(50, window.innerWidth/window.innerHeight, 0.01, 10000);
   const controls = new OrbitControls(camera, renderer.domElement);
-  // Responsive feel
   controls.enableDamping = true; controls.dampingFactor = 0.06; controls.zoomSpeed = 1.6; controls.rotateSpeed = 1.2; controls.panSpeed = 1.2;
   controls.minDistance = 0.02; controls.maxDistance = 2000; controls.zoomToCursor = true;
 
   let root = null; let meshes = []; let litSet = new Set(); let parts = new Map();
   let bbox = new THREE.Box3(); let homeTarget = new THREE.Vector3(); let homePos = new THREE.Vector3(); let radius = 1;
 
-  // Per-part overlay defaults (light gray shades), locked at 30%
+  // Per-part overlay defaults: very light varied grays when no selection
   const partOverlay = new Map(); // partName -> { color: THREE.Color, opacity: number }
 
   function base64ToArrayBufferSafe(b64){ if(!b64) return null; const s=b64.replace(/\s+/g,''); if(!/^[A-Za-z0-9+/=]+$/.test(s) || s.length%4!==0) return null; try{ const bin=atob(s); const out=new Uint8Array(bin.length); for(let i=0;i<bin.length;i++) out[i]=bin.charCodeAt(i); return out.buffer; }catch{ return null; } }
@@ -86,9 +85,9 @@
       n.userData.cLit = new THREE.Color(LIT_COLOR); n.userData.cDim = new THREE.Color(DIM_COLOR);
       const part = getTopPartName(n);
       if(!partOverlay.has(part)){
-        const g = 0.80 + Math.random()*0.15; // slightly varied gray
+        const g = 0.90 + Math.random()*0.08; // 0.90..0.98 subtle light gray tint
         const c = new THREE.Color(g, g, g);
-        const op = isBodyName(part) ? 0.0 : LOCKED_OVERLAY_OPACITY; // Body no overlay
+        const op = isBodyName(part) ? 0.0 : BASE_OVERLAY_OPACITY; // Body no overlay
         partOverlay.set(part, { color: c, opacity: op });
       }
       const po = partOverlay.get(part);
@@ -99,14 +98,26 @@
 
   function combinedColor(m){
     const cDimLit = m.userData.cDim.clone().lerp(m.userData.cLit, m.userData.mix);
-    const overlayMix = new THREE.Color(1,1,1).lerp(m.userData.overlayColor, m.userData.overlayOpacity);
+    // Keep selected normal. Unselected darker when a selection exists.
+    const partName = getTopPartName(m);
+    let oColor = m.userData.overlayColor;
+    let oOpacity = m.userData.overlayOpacity;
+    if (litSet.size > 0) {
+      if (isBodyName(partName) || litSet.has(partName)) {
+        oOpacity = 0.0; // fully lit
+      } else {
+        oOpacity = Math.min(1.0, oOpacity + 0.28); // darker than idle
+        oColor = oColor.clone().multiplyScalar(0.85);
+      }
+    }
+    const overlayMix = new THREE.Color(1,1,1).lerp(oColor, oOpacity);
     return cDimLit.multiply(overlayMix);
   }
   function updateMeshColor(m){ setMatColor(m, combinedColor(m)); }
 
   function startTween(m, toMix, durMs){ m.userData.fromMix = m.userData.mix; m.userData.targetMix = toMix; m.userData.t0 = performance.now(); m.userData.dur = Math.max(1, durMs|0); }
   function setTargets(){
-    const any = litSet.size>0; // none selected => all lit
+    const any = litSet.size>0; // none selected => all lit with subtle tints
     for(const m of meshes){
       const part = getTopPartName(m);
       const isBody = isBodyName(part);
@@ -143,21 +154,36 @@
     controls.minDistance=radius*0.05; controls.maxDistance=radius*50.0;
   }
 
-  // Camera tweens
+  // ---------- Camera tween system (queueable) ----------
   let focusTween = null; // {t0,dur,fromPos,fromTgt,toPos,toTgt}
+  const tweenQueue = [];
+  function startCamTween(toPos, toTgt, durMs=900){
+    const t={ t0: performance.now(), dur: durMs, fromPos: camera.position.clone(), fromTgt: controls.target.clone(), toPos: toPos.clone(), toTgt: toTgt.clone() };
+    if(focusTween) tweenQueue.push(t); else focusTween=t;
+  }
+  function stepFocusTween(){
+    if(!focusTween) return;
+    const t = (performance.now()-focusTween.t0)/focusTween.dur; const k=Math.min(1,t); const e=k*k*(3-2*k);
+    camera.position.lerpVectors(focusTween.fromPos, focusTween.toPos, e);
+    controls.target.lerpVectors(focusTween.fromTgt, focusTween.toTgt, e);
+    if(k>=1){ focusTween=null; if(tweenQueue.length){ focusTween=tweenQueue.shift(); focusTween.t0=performance.now(); } }
+  }
+
   function startFocusTweenTo(center, partRadius, durMs=900){
     const fov = THREE.MathUtils.degToRad(camera.fov);
-    const pad = 1.9; // more air around target
+    const pad = 2.6; // a bit more space than before
     const distFit = (partRadius / Math.tan(fov*0.5)) * pad;
     const dir = new THREE.Vector3().subVectors(camera.position, controls.target).normalize();
     const toPos = new THREE.Vector3().copy(center).addScaledVector(dir, Math.max(distFit, controls.minDistance*1.5));
-    const toTgt = center.clone();
-    focusTween = { t0: performance.now(), dur: durMs, fromPos: camera.position.clone(), fromTgt: controls.target.clone(), toPos, toTgt };
+    startCamTween(toPos, center.clone(), durMs);
   }
+
   function startHomeTween(durMs=900){
-    focusTween = { t0: performance.now(), dur: durMs, fromPos: camera.position.clone(), fromTgt: controls.target.clone(), toPos: homePos.clone(), toTgt: homeTarget.clone() };
+    // Directly ease to home. No zoom-out or orbit steps.
+    tweenQueue.length = 0; // drop any pending tweens
+    focusTween = null;     // cancel current tween if any
+    startCamTween(homePos.clone(), homeTarget.clone(), durMs);
   }
-  function stepFocusTween(){ if(!focusTween) return; const t=(performance.now()-focusTween.t0)/focusTween.dur; const k=Math.min(1,t); const e=k*k*(3-2*k); camera.position.lerpVectors(focusTween.fromPos, focusTween.toPos, e); controls.target.lerpVectors(focusTween.fromTgt, focusTween.toTgt, e); if(k>=1) focusTween=null; }
 
   const gltfLoader = new GLTFLoader(); gltfLoader.setCrossOrigin('anonymous');
   const loadFromArrayBuffer = (ab)=> new Promise((res,rej)=>gltfLoader.parse(ab,'',res,rej));
@@ -206,7 +232,21 @@
   (async function boot(){ try{ let gltf=await tryEmbedded(); if(!gltf) gltf=await tryURLs(GLB_URLS); if(gltf) attachModel(gltf); else { const g=new THREE.Group(); scene.add(g);} } catch(e){ console.error(e); }})();
 
   // ---------- Tests ----------
-  (function tests(){ console.log('%c[TEST] start','color:#0f0'); const c=renderer.getClearColor(new THREE.Color()); console.assert(c.getHexString()==='171717','BG locked to #171717'); console.assert(BLOCK_LIST.has('body'),'Body blocked'); console.assert(document.getElementById('reset'),'Reset exists'); console.log('%c[TEST] end','color:#0f0'); })();
+  (function tests(){
+    console.log('%c[TEST] start','color:#0f0');
+    const c=renderer.getClearColor(new THREE.Color());
+    console.assert(renderer.getClearAlpha()===0,'canvas transparent');
+    console.assert(BLOCK_LIST.has('body'),'Body blocked');
+    console.assert(document.getElementById('reset'),'Reset exists');
+    // Added tests
+    console.assert(typeof startHomeTween==='function','home tween exists');
+    console.assert(typeof startFocusTweenTo==='function','focus tween exists');
+    // extra: ensure home tween clears queue
+    tweenQueue.push({t0:0,dur:1,fromPos:camera.position.clone(),fromTgt:controls.target.clone(),toPos:camera.position.clone(),toTgt:controls.target.clone()});
+    startHomeTween(1);
+    console.assert(tweenQueue.length===0,'home tween clears queue');
+    console.log('%c[TEST] end','color:#0f0');
+  })();
 
   </script>
 </body>
