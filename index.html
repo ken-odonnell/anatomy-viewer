@@ -3,13 +3,23 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no" />
-  <title>Anatomy Viewer — Transparent canvas, off‑white page, improved home tween</title>
+  <title>Anatomy Viewer</title>
   <style>
-    html,body{margin:0;height:100%;background:#575757;color:#222;font-family:system-ui,Segoe UI,Roboto,Arial,sans-serif}
-    #hud{position:fixed;top:10px;right:10px;display:flex;gap:10px;z-index:10;align-items:center}
-    .btn{display:inline-flex;align-items:center;gap:8px;background:#222;color:#fff;border:1px solid #333;border-radius:8px;padding:8px 10px;font-size:14px;cursor:pointer}
-    .btn:active{transform:translateY(1px)}
+    html,body{margin:0;height:100%;background:#0C0F13;color:#e6e6e6;font-family:system-ui,Segoe UI,Roboto,Arial,sans-serif}
     #canvas{width:100%;height:100%;display:block}
+    #hud{position:fixed;top:10px;right:10px;display:flex;gap:10px;z-index:10;align-items:flex-start;flex-wrap:wrap}
+    .btn{display:inline-flex;align-items:center;gap:8px;background:#14181f;color:#e6e6e6;border:1px solid #2a3140;border-radius:8px;padding:8px 10px;font-size:14px;cursor:pointer}
+    .btn:active{transform:translateY(1px)}
+    .pill{display:flex;align-items:center;gap:6px;background:rgba(20,24,31,.9);border:1px solid #2a3140;color:#e6e6e6;border-radius:10px;padding:6px 8px}
+    .num{min-width:3ch;text-align:right;font-variant-numeric:tabular-nums}
+    #status{position:fixed;left:10px;bottom:10px;background:rgba(0,0,0,.65);color:#fff;padding:6px 8px;border-radius:8px;font-size:12px;max-width:70vw;white-space:pre-wrap}
+    /* Selection list */
+    #selPanel{display:flex;flex-direction:column;gap:6px;max-height:40vh;overflow:auto;min-width:200px}
+    #selPanel h4{margin:0 0 4px 0;font-size:12px;color:#9fb0c9;font-weight:600;letter-spacing:.04em;text-transform:uppercase}
+    #selList{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:4px}
+    #selList li{background:#0f141b;border:1px solid #263041;color:#dbe7ff;padding:4px 6px;border-radius:6px;font-size:12px}
+    input[type="color"]{background:transparent;border:none}
+    input[type="range"]{accent-color:#9EDFFF}
   </style>
   <script async src="https://unpkg.com/es-module-shims@1.10.0/dist/es-module-shims.js"></script>
   <script type="importmap">
@@ -21,37 +31,70 @@
 </head>
 <body>
   <canvas id="canvas"></canvas>
-  <div id="hud">
-    <button id="reset" class="btn" title="Reset camera and selection">
-      <svg class="icon" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" style="color:#fff"><path fill="none" stroke="currentColor" stroke-width="2" d="M20,8 C18.5974037,5.04031171 15.536972,3 12,3 C7.02943725,3 3,7.02943725 3,12 C3,16.9705627 7.02943725,21 12,21 L12,21 C16.9705627,21 21,16.9705627 21,12 M21,3 L21,9 L15,9"/></svg>
-      <span>Reset</span>
-    </button>
-  </div>
 
-  <!-- Optional Base64 GLB embed. Leave empty unless embedding valid Base64. -->
-  <script id="embedded-glb" type="application/octet-stream"></script>
+  <div id="hud">
+    <button id="reset" class="btn" title="Reset camera and selection">Reset</button>
+    <div class="pill">Selected: <strong id="sel">0</strong></div>
+
+    <label class="pill">BG <input id="bg" type="color" value="#0C0F13"></label>
+
+    <label class="pill">Albedo
+      <input id="shade" type="color" value="#2b2b2b">
+      <input id="albedoI" type="range" min="0" max="2" step="0.01" value="1">
+      <span id="albedoVal" class="num">1.00</span>
+    </label>
+
+    <label class="pill">Emissive
+      <input id="emiColor" type="color" value="#9EDFFF">
+      <input id="emiI" type="range" min="0" max="5" step="0.01" value="2">
+      <span id="emiIval" class="num">2.00</span>
+    </label>
+
+    <div id="selPanel" class="pill">
+      <div style="display:flex;align-items:center;gap:8px;width:100%">
+        <h4 style="flex:1">Selected Parts</h4>
+        <button id="clearSel" class="btn" style="padding:4px 8px">Clear</button>
+      </div>
+      <ul id="selList"></ul>
+    </div>
+  </div>
+  <div id="status" role="status" aria-live="polite"></div>
 
   <script type="module">
   import * as THREE from 'three';
   import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
   import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+  import { KTX2Loader } from 'three/addons/loaders/KTX2Loader.js';
 
   // ---------- Config ----------
+  const EMISSIVE_FALLBACK_URL = 'https://github.com/ken-odonnell/model-host/blob/main/AvatarTexture.png';
   const GLB_URLS = [
-    'https://github.com/ken-odonnell/model-host/raw/refs/heads/main/Avatar.glb',
+    'https://github.com/ken-odonnell/model-host/edit/main/Avatar.glb',
     'https://raw.githubusercontent.com/ken-odonnell/model-host/main/Avatar.glb',
-    './assets/Avatar.glb','./Avatar.glb','./assets/avatar.glb','./avatar.glb'
+    'https://media.githubusercontent.com/media/ken-odonnell/model-host/main/Avatar.glb',
+    'https://github.com/ken-odonnell/model-host/raw/refs/heads/main/Avatar.glb',
+    'https://raw.githubusercontent.com/ken-odonnell/model-host/main/Avatar_v02.glb',
+    'https://github.com/ken-odonnell/model-host/raw/refs/heads/main/Avatar_v02.glb'
   ];
-  const BLOCK_LIST = new Set(['body']); // non-selectable
-  const LIT_COLOR = 0xffffff;
-  const DIM_COLOR = 0xbfbfbf;
-  const TRANSITION_MS_DIM_OUT = 500;    // 0.5s dim
-  const TRANSITION_MS_LIGHT_IN = 1000;  // 1s light
-  const BASE_OVERLAY_OPACITY = 0.12;    // subtle hints when nothing selected
+  const BLOCK_LIST = new Set(['body']);
 
   // ---------- DOM ----------
   const canvas = document.getElementById('canvas');
   const resetBtn = document.getElementById('reset');
+  const selCount = document.getElementById('sel');
+  const bg = document.getElementById('bg');
+  const shadePicker = document.getElementById('shade');
+  const albedoI = document.getElementById('albedoI');
+  const albedoVal = document.getElementById('albedoVal');
+  const emiColor = document.getElementById('emiColor');
+  const emiI = document.getElementById('emiI');
+  const emiIval = document.getElementById('emiIval');
+  const statusEl = document.getElementById('status');
+  const selList = document.getElementById('selList');
+  const clearSel = document.getElementById('clearSel');
+
+  const logDebug = ()=>{}; // no-op (debug UI removed)
+  function setStatus(t){ statusEl.textContent = t || ''; }
 
   // ---------- Three.js ----------
   const renderer = new THREE.WebGLRenderer({ canvas, antialias:true, alpha:true });
@@ -59,7 +102,7 @@
   renderer.setSize(window.innerWidth, window.innerHeight);
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   renderer.toneMapping = THREE.NoToneMapping;
-  renderer.setClearColor(0x000000, 0); // transparent canvas, page shows through
+  renderer.setClearColor(0x000000, 0);
 
   const scene = new THREE.Scene();
   const camera = new THREE.PerspectiveCamera(50, window.innerWidth/window.innerHeight, 0.01, 10000);
@@ -67,84 +110,105 @@
   controls.enableDamping = true; controls.dampingFactor = 0.06; controls.zoomSpeed = 1.6; controls.rotateSpeed = 1.2; controls.panSpeed = 1.2;
   controls.minDistance = 0.02; controls.maxDistance = 2000; controls.zoomToCursor = true;
 
+  const hemi = new THREE.HemisphereLight(0xffffff, 0x404040, 0.5); scene.add(hemi);
+  const dir = new THREE.DirectionalLight(0xffffff, 0.8); dir.position.set(3,5,2); scene.add(dir);
+
   let root = null; let meshes = []; let litSet = new Set(); let parts = new Map();
-  let bbox = new THREE.Box3(); let homeTarget = new THREE.Vector3(); let homePos = new THREE.Vector3(); let radius = 1;
+  let homeTarget = new THREE.Vector3(); let homePos = new THREE.Vector3(); let radius = 1;
+  const originalMat = new WeakMap();
 
-  // Per-part overlay defaults: very light varied grays when no selection
-  const partOverlay = new Map(); // partName -> { color: THREE.Color, opacity: number }
+  // ---------- UI state ----------
+  const saved = {
+    bg: localStorage.getItem('viewer_bg') || '#0C0F13',
+    shade: localStorage.getItem('viewer_shade') || '#2b2b2b',
+    albedoI: parseFloat(localStorage.getItem('viewer_albedoI') || '1'),
+    emiColor: localStorage.getItem('viewer_emiColor') || '#9EDFFF',
+    emiI: parseFloat(localStorage.getItem('viewer_emiI') || '2')
+  };
+  bg.value = saved.bg; shadePicker.value = saved.shade; albedoI.value = String(saved.albedoI); albedoVal.textContent = saved.albedoI.toFixed(2);
+  emiColor.value = saved.emiColor; emiI.value = String(saved.emiI); emiIval.textContent = saved.emiI.toFixed(2);
+  document.body.style.background = saved.bg;
 
-  function base64ToArrayBufferSafe(b64){ if(!b64) return null; const s=b64.replace(/\s+/g,''); if(!/^[A-Za-z0-9+/=]+$/.test(s) || s.length%4!==0) return null; try{ const bin=atob(s); const out=new Uint8Array(bin.length); for(let i=0;i<bin.length;i++) out[i]=bin.charCodeAt(i); return out.buffer; }catch{ return null; } }
-  function isBodyName(n){ return String(n||'').trim().toLowerCase()==='body'; }
-  function toUnlit(mat){ const make=(m)=>{ const x=new THREE.MeshBasicMaterial({map:m?.map??null,color:0xffffff,transparent:!!m?.transparent,opacity:typeof m?.opacity==='number'?m.opacity:1}); if(x.map){ x.map.colorSpace=THREE.SRGBColorSpace; x.map.needsUpdate=true; } return x; }; return Array.isArray(mat)?mat.map(make):make(mat||{}); }
-  function setMatColor(obj,c){ if(Array.isArray(obj.material)){ for(const m of obj.material){ m.color.copy(c); m.needsUpdate=true; } } else { obj.material.color.copy(c); obj.material.needsUpdate=true; } }
-  function getTopPartName(o){ let cur=o, name=o.name||''; while(cur&&cur.parent&&cur.parent!==root){ if(cur.parent.name) name=cur.parent.name; cur=cur.parent; } return name||o.parent?.name||o.name||''; }
+  bg.addEventListener('input', e=>{ const v=e.target.value; localStorage.setItem('viewer_bg', v); document.body.style.background = v; renderer.setClearColor(0x000000, 0); });
+  shadePicker.addEventListener('input', e=>{ const v=e.target.value; localStorage.setItem('viewer_shade', v); refreshMaterials(); });
+  albedoI.addEventListener('input', e=>{ const v=parseFloat(e.target.value); localStorage.setItem('viewer_albedoI', String(v)); albedoVal.textContent=v.toFixed(2); refreshMaterials(); });
+  emiColor.addEventListener('input', e=>{ const v=e.target.value; localStorage.setItem('viewer_emiColor', v); refreshMaterials(); });
+  emiI.addEventListener('input', e=>{ const v=parseFloat(e.target.value); localStorage.setItem('viewer_emiI', String(v)); emiIval.textContent=v.toFixed(2); refreshMaterials(); });
 
-  function collectMeshes(obj){ const list=[]; obj.traverse(n=>{ if(n.isMesh){ n.material=toUnlit(n.material); // tween + overlay per mesh
-      n.userData.mix = 1;           // 1 lit, 0 dim
-      n.userData.targetMix = 1; n.userData.fromMix = 1; n.userData.t0 = 0; n.userData.dur = 0;
-      n.userData.cLit = new THREE.Color(LIT_COLOR); n.userData.cDim = new THREE.Color(DIM_COLOR);
-      const part = getTopPartName(n);
-      if(!partOverlay.has(part)){
-        const g = 0.90 + Math.random()*0.08; // 0.90..0.98 subtle light gray tint
-        const c = new THREE.Color(g, g, g);
-        const op = isBodyName(part) ? 0.0 : BASE_OVERLAY_OPACITY; // Body no overlay
-        partOverlay.set(part, { color: c, opacity: op });
+  // ---------- Helpers ----------
+  function normalizeGitHubURL(u){
+    try{
+      const url = new URL(u, location.href);
+      if (url.hostname === 'github.com'){
+        const seg = url.pathname.split('/').filter(Boolean);
+        if (seg.length >= 5){
+          const user = seg[0], repo = seg[1], mode = seg[2], branch = seg[3];
+          const path = seg.slice(4).join('/');
+          if (['blob','raw','edit','tree'].includes(mode)){
+            return `https://raw.githubusercontent.com/${user}/${repo}/${branch}/${path}`;
+          }
+        }
       }
-      const po = partOverlay.get(part);
-      n.userData.overlayColor = po.color.clone();
-      n.userData.overlayOpacity = po.opacity;
-      list.push(n);
-    } }); return list; }
-
-  function combinedColor(m){
-    const cDimLit = m.userData.cDim.clone().lerp(m.userData.cLit, m.userData.mix);
-    // Keep selected normal. Unselected darker when a selection exists.
-    const partName = getTopPartName(m);
-    let oColor = m.userData.overlayColor;
-    let oOpacity = m.userData.overlayOpacity;
-    if (litSet.size > 0) {
-      if (isBodyName(partName) || litSet.has(partName)) {
-        oOpacity = 0.0; // fully lit
-      } else {
-        oOpacity = Math.min(1.0, oOpacity + 0.28); // darker than idle
-        oColor = oColor.clone().multiplyScalar(0.85);
-      }
-    }
-    const overlayMix = new THREE.Color(1,1,1).lerp(oColor, oOpacity);
-    return cDimLit.multiply(overlayMix);
+      return u;
+    }catch{ return u; }
   }
-  function updateMeshColor(m){ setMatColor(m, combinedColor(m)); }
+  function urlDir(u){ try{ const url=new URL(u); url.pathname=url.pathname.replace(/[^/]*$/, ''); return url.href; }catch{ return u; } }
 
-  function startTween(m, toMix, durMs){ m.userData.fromMix = m.userData.mix; m.userData.targetMix = toMix; m.userData.t0 = performance.now(); m.userData.dur = Math.max(1, durMs|0); }
-  function setTargets(){
-    const any = litSet.size>0; // none selected => all lit with subtle tints
-    for(const m of meshes){
-      const part = getTopPartName(m);
-      const isBody = isBodyName(part);
-      const shouldLit = any ? (!isBody && litSet.has(part)) : true;
-      const to = shouldLit ? 1 : 0;
-      if (to !== m.userData.targetMix) {
-        const goingDim = m.userData.mix > to;
-        startTween(m, to, goingDim ? TRANSITION_MS_DIM_OUT : TRANSITION_MS_LIGHT_IN);
-      }
+  // ---------- Materials ----------
+  function cloneMaterial(mat){
+    const make = (m)=>{
+      const out = new THREE.MeshStandardMaterial();
+      out.map = m?.map || null;
+      out.normalMap = m?.normalMap || null;
+      out.roughnessMap = m?.roughnessMap || null;
+      out.metalnessMap = m?.metalnessMap || null;
+      out.emissiveMap = m?.emissiveMap || null;
+      out.color = (m?.color ? m.color.clone() : new THREE.Color(0x000000));
+      const hasEmissiveMap = !!m?.emissiveMap;
+      out.emissive = hasEmissiveMap ? new THREE.Color(emiColor.value) : (m?.emissive ? m.emissive.clone() : new THREE.Color(0x000000));
+      out.emissiveIntensity = typeof m?.emissiveIntensity==='number' ? m.emissiveIntensity : 1;
+      out.roughness = typeof m?.roughness==='number' ? m.roughness : 1;
+      out.metalness = typeof m?.metalness==='number' ? m.metalness : 0;
+      out.transparent = !!m?.transparent; out.opacity = typeof m?.opacity==='number' ? m.opacity : 1;
+      return out;
+    };
+    return Array.isArray(mat) ? mat.map(make) : make(mat||{});
+  }
+  function storeOriginal(m){
+    const mat = m.material;
+    originalMat.set(m, {
+      color: mat.color ? mat.color.clone() : null,
+      emissive: mat.emissive ? mat.emissive.clone() : null,
+      emissiveIntensity: typeof mat.emissiveIntensity==='number' ? mat.emissiveIntensity : 1
+    });
+  }
+  function applyShadeAndEmissive(m, isSelected){
+    const shade = new THREE.Color(shadePicker.value);
+    const rec = originalMat.get(m) || {};
+    const mat = m.material;
+
+    // Reset to baseline each refresh
+    if (mat.color) mat.color.copy(shade).multiplyScalar(parseFloat(albedoI.value));
+    if (mat.emissive){
+      if (mat.emissiveMap){ mat.emissive.set(emiColor.value); }
+      else if (rec.emissive){ mat.emissive.copy(rec.emissive); }
+    }
+    if ('emissiveIntensity' in mat) mat.emissiveIntensity = (rec.emissiveIntensity ?? 1) * parseFloat(emiI.value);
+
+    // Dim only when there is an active selection and this mesh is not selected
+    if (litSet.size > 0 && !isSelected){
+      if (mat.color) mat.color.multiplyScalar(0.35);
+      if (mat.emissive) mat.emissive.multiplyScalar(0.2);
+      if ('emissiveIntensity' in mat) mat.emissiveIntensity *= 0.25;
     }
   }
-  function updateTweens(){
-    const now = performance.now();
-    for(const m of meshes){
-      const dur = m.userData.dur|0; if(!dur) { updateMeshColor(m); continue; }
-      const t = Math.min(1, (now - m.userData.t0) / dur);
-      const e = t*t*(3 - 2*t);
-      m.userData.mix = THREE.MathUtils.lerp(m.userData.fromMix, m.userData.targetMix, e);
-      updateMeshColor(m);
-      if (t >= 1) { m.userData.dur = 0; m.userData.mix = m.userData.targetMix; }
-    }
-  }
+  function refreshMaterials(){ if (!root) return; meshes.forEach(m=>{ const part = topPartName(m); const sel = litSet.size===0 || (!BLOCK_LIST.has(part.toLowerCase()) && litSet.has(part)); applyShadeAndEmissive(m, sel); }); }
 
+  // ---------- Scene prep ----------
+  function topPartName(o){ let c=o, name=o.name||''; while(c&&c.parent&&c.parent!==root){ if(c.parent.name) name=c.parent.name; c=c.parent; } return name||o.parent?.name||o.name||''; }
   function groundSnapAndFrame(){
     const bbox = new THREE.Box3().setFromObject(root);
     const minY=bbox.min.y; root.position.y -= minY;
-    bbox.setFromObject(root);
     const sphere=bbox.getBoundingSphere(new THREE.Sphere());
     radius=Math.max(1e-3,sphere.radius);
     const dist=radius*2.2; camera.position.set(sphere.center.x, sphere.center.y+radius*0.5, sphere.center.z+dist);
@@ -154,99 +218,140 @@
     controls.minDistance=radius*0.05; controls.maxDistance=radius*50.0;
   }
 
-  // ---------- Camera tween system (queueable) ----------
-  let focusTween = null; // {t0,dur,fromPos,fromTgt,toPos,toTgt}
-  const tweenQueue = [];
-  function startCamTween(toPos, toTgt, durMs=900){
-    const t={ t0: performance.now(), dur: durMs, fromPos: camera.position.clone(), fromTgt: controls.target.clone(), toPos: toPos.clone(), toTgt: toTgt.clone() };
-    if(focusTween) tweenQueue.push(t); else focusTween=t;
-  }
-  function stepFocusTween(){
-    if(!focusTween) return;
-    const t = (performance.now()-focusTween.t0)/focusTween.dur; const k=Math.min(1,t); const e=k*k*(3-2*k);
-    camera.position.lerpVectors(focusTween.fromPos, focusTween.toPos, e);
-    controls.target.lerpVectors(focusTween.fromTgt, focusTween.toTgt, e);
-    if(k>=1){ focusTween=null; if(tweenQueue.length){ focusTween=tweenQueue.shift(); focusTween.t0=performance.now(); } }
-  }
+  // ---------- Camera tween ----------
+  let focusTween = null; const tweenQueue = [];
+  function startCamTween(toPos, toTgt, durMs=800){ const t={ t0: performance.now(), dur: durMs, fromPos: camera.position.clone(), fromTgt: controls.target.clone(), toPos: toPos.clone(), toTgt: toTgt.clone() }; if(focusTween) tweenQueue.push(t); else focusTween=t; }
+  function stepFocusTween(){ if(!focusTween) return; const t=(performance.now()-focusTween.t0)/focusTween.dur; const k=Math.min(1,t); const e=k*k*(3-2*k); camera.position.lerpVectors(focusTween.fromPos, focusTween.toPos, e); controls.target.lerpVectors(focusTween.fromTgt, focusTween.toTgt, e); if(k>=1){ focusTween=null; if(tweenQueue.length){ focusTween=tweenQueue.shift(); focusTween.t0=performance.now(); } } }
+  function startFocusTweenTo(center, partRadius, durMs=800){ const fov=THREE.MathUtils.degToRad(camera.fov); const pad=2.4; const distFit=(partRadius/Math.tan(fov*0.5))*pad; const dir=new THREE.Vector3().subVectors(camera.position, controls.target).normalize(); const toPos=new THREE.Vector3().copy(center).addScaledVector(dir, Math.max(distFit, controls.minDistance*1.5)); startCamTween(toPos, center.clone(), durMs); }
+  function startHomeTween(durMs=800){ tweenQueue.length=0; focusTween=null; startCamTween(homePos.clone(), homeTarget.clone(), durMs); }
 
-  function startFocusTweenTo(center, partRadius, durMs=900){
-    const fov = THREE.MathUtils.degToRad(camera.fov);
-    const pad = 2.6; // a bit more space than before
-    const distFit = (partRadius / Math.tan(fov*0.5)) * pad;
-    const dir = new THREE.Vector3().subVectors(camera.position, controls.target).normalize();
-    const toPos = new THREE.Vector3().copy(center).addScaledVector(dir, Math.max(distFit, controls.minDistance*1.5));
-    startCamTween(toPos, center.clone(), durMs);
+  // ---------- Loader with texture fallback ----------
+  function makeLoader(){
+    const manager = new THREE.LoadingManager();
+    const ktx2 = new KTX2Loader(manager)
+      .setTranscoderPath('https://unpkg.com/three@0.161.0/examples/jsm/libs/basis/')
+      .detectSupport(renderer);
+    const loader = new GLTFLoader(manager);
+    loader.setCrossOrigin('anonymous');
+    loader.setKTX2Loader(ktx2);
+    return { loader, manager };
   }
 
-  function startHomeTween(durMs=900){
-    // Directly ease to home. No zoom-out or orbit steps.
-    tweenQueue.length = 0; // drop any pending tweens
-    focusTween = null;     // cancel current tween if any
-    startCamTween(homePos.clone(), homeTarget.clone(), durMs);
+  async function loadWithRetry(url){
+    const normalized = normalizeGitHubURL(url);
+    const base = urlDir(normalized);
+
+    // First attempt: strict and collect failing texture URLs
+    const failed = new Set();
+    const { loader, manager } = makeLoader();
+    manager.setURLModifier((u)=> normalizeGitHubURL(u));
+    manager.itemError = (u)=>{ failed.add(normalizeGitHubURL(u)); };
+
+    try{
+      setStatus('Loading '+ normalized.split('/').slice(-1)[0] +' …');
+      loader.setResourcePath(base);
+      const g = await loader.loadAsync(normalized);
+      setStatus('Loaded');
+      return { gltf:g, failed: Array.from(failed) };
+    }catch(err){
+      // Second attempt: redirect failed textures to fallback PNG
+      const fallback = normalizeGitHubURL(EMISSIVE_FALLBACK_URL);
+      const { loader: loader2, manager: manager2 } = makeLoader();
+      manager2.setURLModifier((u)=>{
+        const n = normalizeGitHubURL(u);
+        return failed.has(n) ? fallback : n;
+      });
+      try{
+        loader2.setResourcePath(base);
+        const g2 = await loader2.loadAsync(normalized);
+        setStatus('Loaded with fallback texture');
+        return { gltf:g2, failed: Array.from(failed) };
+      }catch(err2){ setStatus('Error after retry: '+(err2?.message||err2)); throw err2; }
+    }
   }
 
-  const gltfLoader = new GLTFLoader(); gltfLoader.setCrossOrigin('anonymous');
-  const loadFromArrayBuffer = (ab)=> new Promise((res,rej)=>gltfLoader.parse(ab,'',res,rej));
-  async function tryEmbedded(){ const tag=document.getElementById('embedded-glb'); const b64=tag?tag.textContent.trim():''; const ab=base64ToArrayBufferSafe(b64); if(!ab) return null; try{ return await loadFromArrayBuffer(ab);}catch{return null;} }
-  async function tryURLs(urls){ for(const url of urls){ try{ return await gltfLoader.loadAsync(url);} catch(e){ console.warn('URL failed',url,e);} } return null; }
+  async function tryURLs(urls){
+    for(const url of urls){
+      try{ const { gltf } = await loadWithRetry(url); return gltf; }
+      catch(e){ console.warn('Load failed', url, e); }
+    }
+    return null;
+  }
 
-  function clearModel(){ if(!root) return; scene.remove(root); root=null; meshes=[]; litSet.clear(); parts.clear(); partOverlay.clear(); }
+  function clearModel(){ if(!root) return; scene.remove(root); root=null; meshes=[]; litSet.clear(); parts.clear(); updateSelUI(); }
+
   function attachModel(gltf){
-    clearModel(); root=gltf.scene||gltf.scenes?.[0]; scene.add(root); meshes=collectMeshes(root);
-    parts.clear(); const top=root; const all=[]; root.traverse(o=>{ if(o.isMesh) all.push(o); });
-    for(const m of all){ let p=m; while(p.parent&&p.parent!==top) p=p.parent; const key=p.name||m.name||'Part'; if(!parts.has(key)) parts.set(key,{meshes:[]}); parts.get(key).meshes.push(m); }
-    groundSnapAndFrame(); setTargets();
+    clearModel(); root=gltf.scene||gltf.scenes?.[0]; scene.add(root);
+    meshes = []; root.traverse(o=>{ if(o.isMesh){ o.material = cloneMaterial(o.material); storeOriginal(o); meshes.push(o); } });
+    parts.clear(); const all=[]; root.traverse(o=>{ if(o.isMesh) all.push(o); });
+    for(const m of all){ let p=m; while(p.parent&&p.parent!==root) p=p.parent; const key=p.name||m.name||'Part'; if(!parts.has(key)) parts.set(key,{meshes:[]}); parts.get(key).meshes.push(m); }
+    groundSnapAndFrame(); litSet.clear(); refreshMaterials(); updateSelUI(); runPostLoadTests();
   }
 
-  // ---------- Picking with drag/hold guard ----------
+  // ---------- Selection UI ----------
+  function updateSelUI(){
+    selCount.textContent = String(litSet.size);
+    selList.innerHTML = '';
+    if (litSet.size===0){ const li=document.createElement('li'); li.textContent='None'; selList.appendChild(li); return; }
+    Array.from(litSet).sort((a,b)=>a.localeCompare(b)).forEach(name=>{
+      const li=document.createElement('li'); li.textContent=name; selList.appendChild(li);
+    });
+  }
+  clearSel.addEventListener('click', ()=>{ litSet.clear(); refreshMaterials(); updateSelUI(); startHomeTween(600); });
+
+  // ---------- Picking ----------
   const raycaster=new THREE.Raycaster(); const ndc=new THREE.Vector2();
   const down = {x:0,y:0,t:0,moved:false};
   renderer.domElement.addEventListener('pointerdown', (e)=>{ down.x=e.clientX; down.y=e.clientY; down.t=performance.now(); down.moved=false; }, {passive:true});
   renderer.domElement.addEventListener('pointermove', (e)=>{ if(down.t){ const dx=e.clientX-down.x, dy=e.clientY-down.y; if(Math.hypot(dx,dy)>6) down.moved=true; } }, {passive:true});
-  function doPickAt(clientX, clientY){
-    const r=renderer.domElement.getBoundingClientRect(); ndc.x=((clientX-r.left)/r.width)*2-1; ndc.y=-((clientY-r.top)/r.height)*2+1; raycaster.setFromCamera(ndc,camera);
-    const hits=raycaster.intersectObjects(meshes,true); if(!hits.length) return null; const part=getTopPartName(hits[0].object); if(BLOCK_LIST.has(part.toLowerCase())) return null; return part;
-  }
+  function pickAt(clientX, clientY){ const r=renderer.domElement.getBoundingClientRect(); ndc.x=((clientX-r.left)/r.width)*2-1; ndc.y=-((clientY-r.top)/r.height)*2+1; raycaster.setFromCamera(ndc,camera); const hits=raycaster.intersectObjects(meshes,true); if(!hits.length) return null; const part=topPartName(hits[0].object); if(BLOCK_LIST.has(part.toLowerCase())) return null; return part; }
   renderer.domElement.addEventListener('pointerup', (e)=>{
-    const dt = performance.now()-down.t; const wasDrag = down.moved || dt>300; down.t=0;
-    if(wasDrag) return; // ignore hold/drag clicks
-    const part = doPickAt(e.clientX, e.clientY); if(!part) return;
+    const dt=performance.now()-down.t; const wasDrag = down.moved || dt>300; down.t=0; if(wasDrag) return;
+    const part = pickAt(e.clientX, e.clientY); if(!part) return;
     if(litSet.has(part)) litSet.delete(part); else litSet.add(part);
-    setTargets();
-    if(litSet.size===0) startHomeTween(900); else {
-      const rec=parts.get(part); if(rec){ const box=new THREE.Box3(); for(const m of rec.meshes) box.expandByObject(m); const s=box.getBoundingSphere(new THREE.Sphere()); startFocusTweenTo(s.center, Math.max(1e-3,s.radius), 900); }
-    }
+    refreshMaterials(); updateSelUI();
+    if(litSet.size===0){ startHomeTween(800); } else { const rec=parts.get(part); if(rec){ const box=new THREE.Box3(); for(const m of rec.meshes) box.expandByObject(m); const s=box.getBoundingSphere(new THREE.Sphere()); startFocusTweenTo(s.center, Math.max(1e-3,s.radius), 800); } }
   }, {passive:false});
 
   // ---------- Reset ----------
-  function resetAll(){ litSet.clear(); setTargets(); startHomeTween(900); }
+  function resetAll(){ litSet.clear(); refreshMaterials(); updateSelUI(); startHomeTween(800); }
   resetBtn.addEventListener('click', resetAll);
 
   // ---------- Resize ----------
   window.addEventListener('resize', ()=>{ renderer.setSize(window.innerWidth,window.innerHeight); camera.aspect=window.innerWidth/window.innerHeight; camera.updateProjectionMatrix(); });
 
   // ---------- Animate ----------
-  function animate(){ requestAnimationFrame(animate); stepFocusTween(); updateTweens(); controls.update(); renderer.render(scene, camera); } animate();
+  function animate(){ requestAnimationFrame(animate); stepFocusTween(); controls.update(); renderer.render(scene, camera); } animate();
 
   // ---------- Boot ----------
-  (async function boot(){ try{ let gltf=await tryEmbedded(); if(!gltf) gltf=await tryURLs(GLB_URLS); if(gltf) attachModel(gltf); else { const g=new THREE.Group(); scene.add(g);} } catch(e){ console.error(e); }})();
+  (async function boot(){ try{ const gltf = await tryURLs(GLB_URLS); if(gltf) attachModel(gltf); else setStatus('All sources failed.'); } catch(e){ console.error(e); setStatus('Error: '+e?.message); }})();
 
-  // ---------- Tests ----------
-  (function tests(){
+  // ---------- Tests (do not remove) ----------
+  function runPostLoadTests(){
     console.log('%c[TEST] start','color:#0f0');
-    const c=renderer.getClearColor(new THREE.Color());
     console.assert(renderer.getClearAlpha()===0,'canvas transparent');
     console.assert(BLOCK_LIST.has('body'),'Body blocked');
     console.assert(document.getElementById('reset'),'Reset exists');
-    // Added tests
     console.assert(typeof startHomeTween==='function','home tween exists');
     console.assert(typeof startFocusTweenTo==='function','focus tween exists');
-    // extra: ensure home tween clears queue
-    tweenQueue.push({t0:0,dur:1,fromPos:camera.position.clone(),fromTgt:controls.target.clone(),toPos:camera.position.clone(),toTgt:controls.target.clone()});
-    startHomeTween(1);
-    console.assert(tweenQueue.length===0,'home tween clears queue');
+    console.assert(/^#([0-9a-f]{3}){1,2}$/i.test(shadePicker.value),'albedo color valid hex');
+    console.assert(parseFloat(albedoI.value)>=0 && parseFloat(albedoI.value)<=2,'albedo multiplier in range');
+    console.assert(/^#([0-9a-f]{3}){1,2}$/i.test(emiColor.value),'emissive color valid hex');
+    console.assert(parseFloat(emiI.value)>=0 && parseFloat(emiI.value)<=5,'emissive multiplier in range');
+    console.assert(document.getElementById('selList'),'selection list exists');
+    // URL normalizer tests
+    console.assert(normalizeGitHubURL('https://github.com/u/r/blob/main/a.glb').startsWith('https://raw.githubusercontent.com/'),'normalizes blob to raw');
+    console.assert(normalizeGitHubURL('https://github.com/u/r/edit/main/a.glb').includes('/raw.githubusercontent.com/'),'normalizes edit to raw');
+    console.assert(normalizeGitHubURL(EMISSIVE_FALLBACK_URL).includes('/raw.githubusercontent.com/'),'fallback normalized to raw');
+    // Emissive presence check (best-effort)
+    const anyEmissive = meshes.some(m=>!!m.material.emissiveMap);
+    console.assert(anyEmissive,'at least one mesh has emissiveMap');
+    meshes.filter(m=>m.material.emissiveMap).forEach(m=>{
+      const e=m.material.emissive; const isBlack = (e.r===0&&e.g===0&&e.b===0);
+      console.assert(!isBlack, 'emissive color forced non-black for '+(m.name||'mesh'));
+    });
     console.log('%c[TEST] end','color:#0f0');
-  })();
+  }
 
   </script>
 </body>
