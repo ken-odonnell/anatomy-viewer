@@ -43,28 +43,6 @@
 
   <div id="hud">
     <button id="reset" class="btn" title="Reset camera and selection"><img class="icon" src="https://raw.githubusercontent.com/ken-odonnell/model-host/main/reset-icon.svg" alt=""> Reset</button>
-    
-
-    <label class="pill">BG <input id="bg" type="color" value="#0C0F13"></label>
-
-    <label class="pill">Albedo
-      <input id="shade" type="color" value="#2b2b2b">
-      <input id="albedoI" type="range" min="0" max="2" step="0.01" value="1">
-      <span id="albedoVal" class="num">1.00</span>
-    </label>
-
-    <label class="pill">Emissive
-      <input id="emiColor" type="color" value="#9EDFFF">
-      <input id="emiI" type="range" min="0" max="5" step="0.01" value="2">
-      <span id="emiIval" class="num">2.00</span>
-    </label>
-    <div id="selPanel" class="pill">
-      <div style="display:flex;align-items:center;gap:8px;width:100%">
-        <h4 style="flex:1">Selected Parts</h4>
-        <button id="clearSel" class="btn" style="padding:4px 8px">Clear</button>
-      </div>
-      <ul id="selList"></ul>
-    </div>
   </div>
   <div id="status" role="status" aria-live="polite"></div>
 
@@ -88,16 +66,16 @@
   const dotsLayer = document.getElementById('dots');
   const resetBtn = document.getElementById('reset');
   
-  const bg = document.getElementById('bg');
-  const shadePicker = document.getElementById('shade');
-  const albedoI = document.getElementById('albedoI');
-  const albedoVal = document.getElementById('albedoVal');
-  const emiColor = document.getElementById('emiColor');
-  const emiI = document.getElementById('emiI');
-  const emiIval = document.getElementById('emiIval');
+  const bg = document.getElementById('bg') || { value:'#0C0F13' };
+  const shadePicker = document.getElementById('shade') || { value:'#2b2b2b' };
+  const albedoI = document.getElementById('albedoI') || { value:'1' };
+  const albedoVal = document.getElementById('albedoVal') || { textContent:'1.00' };
+  const emiColor = document.getElementById('emiColor') || { value:'#9EDFFF' };
+  const emiI = document.getElementById('emiI') || { value:'2' };
+  const emiIval = document.getElementById('emiIval') || { textContent:'2.00' };
   const statusEl = document.getElementById('status');
-  const selList = document.getElementById('selList');
-  const clearSel = document.getElementById('clearSel');
+  const selList = document.getElementById('selList') || null;
+  const clearSel = document.getElementById('clearSel') || null;
   const resetBtnEl = document.getElementById('reset');
 
   const logDebug = ()=>{}; // no debug UI
@@ -145,12 +123,6 @@
   
   document.body.style.background = saved.bg;
 
-  bg.addEventListener('input', e=>{ const v=e.target.value; localStorage.setItem('viewer_bg', v); document.body.style.background = v; renderer.setClearColor(0x000000, 0); });
-  shadePicker.addEventListener('input', e=>{ const v=e.target.value; localStorage.setItem('viewer_shade', v); });
-  albedoI.addEventListener('input', e=>{ const v=parseFloat(e.target.value); localStorage.setItem('viewer_albedoI', String(v)); albedoVal.textContent=v.toFixed(2); });
-  emiColor.addEventListener('input', e=>{ const v=e.target.value; localStorage.setItem('viewer_emiColor', v); });
-  emiI.addEventListener('input', e=>{ const v=parseFloat(e.target.value); localStorage.setItem('viewer_emiI', String(v)); emiIval.textContent=v.toFixed(2); });
-
   // ---------- Helpers ----------
   function normalizeGitHubURL(u){
     try{
@@ -170,16 +142,21 @@
   }
   function urlDir(u){ try{ const url=new URL(u); url.pathname=url.pathname.replace(/[^/]*$/, ''); return url.href; }catch{ return u; } }
 
-  
   function canonKey(name){
-    let s = (name||'').toLowerCase();
-    s = s.replace(/(_null)\b/gi, '');
-    s = s.replace(/\bnull\b/gi, '');
-    s = s.replace(/(_l|_r)\b/gi, '');
-    s = s.replace(/\b(left|right)\b/gi, '');
-    s = s.replace(/\b(l|r)\b/gi, '');
-    s = s.replace(/[_-]+/g, ' ');
-    s = s.replace(/\s+/g, ' ').trim();
+    // Normalize names from GLB to a canonical key used for grouping and display
+    let s = String(name||'');
+    // split CamelCase like "UpperArm" -> "Upper Arm"
+    s = s.replace(/([a-z])([A-Z])/g,'$1 $2');
+    // underscores and hyphens to spaces
+    s = s.replace(/[_-]+/g,' ');
+    // collapse spaces
+    s = s.replace(/ +/g,' ').trim();
+    // drop side markers and null tokens
+    const filtered = s.split(' ').filter(t=>{
+      const k=t.toLowerCase();
+      return k!=='null' && k!=='l' && k!=='r' && k!=='left' && k!=='right' && k!=='_null';
+    });
+    s = filtered.join(' ').toLowerCase();
     return s;
   }
 
@@ -273,9 +250,11 @@
   function getSideSign(focusMember, worldX){
     let sign = 0;
     if (focusMember){
-      if (/_l/i.test(focusMember) || /left/i.test(focusMember)) sign = -1;
-      else if (/_r/i.test(focusMember) || /right/i.test(focusMember)) sign = 1;
+      const f = String(focusMember).toLowerCase();
+      if (f.includes('_l') || f.includes('left')) sign = -1;
+      else if (f.includes('_r') || f.includes('right')) sign = 1;
     }
+
     if (!sign){ sign = (worldX >= homeTarget.x) ? 1 : -1; }
     return sign;
   }
@@ -445,33 +424,36 @@
 
   // ---------- Display names ----------
   const DISPLAY_NAME_MAP = {
-    'neck chin':'Neck/Chin', 'neck/chin':'Neck/Chin',
+    'neck chin':'Neck/Chin', 'neck/chin':'Neck/Chin', 'neckchin':'Neck/Chin',
     'chest':'Chest',
-    'abdomen':'Abdomen',
+    'abdomen':'Abdomen','abs':'Abdomen',
     'pubic':'Pubic',
-    'flank':'Flanks', 'flanks':'Flanks',
-    'lower back':'Lower Back', 'mid back':'Mid Back', 'upper back':'Upper Back',
-    'armpit':'Armpits',
-    'banana roll':'Banana Rolls',
-    'upper arm':'Upper Arms', 'lower arm':'Lower Arms',
-    'inner thigh':'Inner Thighs', 'outer thigh':'Outer Thighs'
+    'flank':'Flanks','flanks':'Flanks',
+    'lower back':'Lower Back','lowerback':'Lower Back',
+    'mid back':'Mid Back','midback':'Mid Back',
+    'upper back':'Upper Back','upperback':'Upper Back',
+    'armpit':'Armpits','armpits':'Armpits',
+    'banana roll':'Banana Rolls','banana rolls':'Banana Rolls','bananaroll':'Banana Rolls',
+    'upper arm':'Upper Arms','upperarm':'Upper Arms',
+    'lower arm':'Lower Arms','lowerarm':'Lower Arms',
+    'inner thigh':'Inner Thighs','innerthigh':'Inner Thighs',
+    'outer thigh':'Outer Thighs','outerthigh':'Outer Thighs'
   };
   function titleCase(str){ return (str||'').split(' ').map(w=>w? w[0].toUpperCase()+w.slice(1):'').join(' '); }
   function niceName(canon){ const key=(canon||'').trim().toLowerCase(); return DISPLAY_NAME_MAP[key] || titleCase(canon||''); }
 
   // ---------- Selection UI ----------
-  function updateSelUI(){
-    const canonSel = new Set();
-    for (const n of litSet) canonSel.add(canonKey(n));
-    /* count removed */
-    selList.innerHTML = '';
-    if (canonSel.size===0){ const li=document.createElement('li'); li.textContent='None'; selList.appendChild(li); return; }
-    Array.from(canonSel).sort((a,b)=>a.localeCompare(b)).forEach(name=>{ const li=document.createElement('li'); li.textContent=niceName(name); selList.appendChild(li); });
-  }
-  clearSel.addEventListener('click', ()=>{ litSet.clear(); updateAnimTargets(); updateSelUI(); stopTurntable(); startHomeTween(600); });
-  resetBtnEl.addEventListener('click', ()=>{ litSet.clear(); updateAnimTargets(); updateSelUI(); stopTurntable(); startHomeTween(600); });
+function updateSelUI(){}
 
-  // ---------- Picking ----------
+resetBtnEl.addEventListener('click', ()=>{ 
+  litSet.clear(); 
+  updateAnimTargets(); 
+  updateSelUI(); 
+  stopTurntable(); 
+  startHomeTween(600); 
+});
+
+// ---------- Picking ----------
   const raycaster=new THREE.Raycaster(); const ndc=new THREE.Vector2();
   const down = {x:0,y:0,t:0,moved:false};
   renderer.domElement.addEventListener('pointerdown', (e)=>{ down.x=e.clientX; down.y=e.clientY; down.t=performance.now(); down.moved=false; }, {passive:true});
@@ -561,8 +543,7 @@
     console.assert(parseFloat(albedoI.value)>=0 && parseFloat(albedoI.value)<=2,'albedo multiplier in range');
     console.assert(/^#([0-9a-f]{3}){1,2}$/i.test(emiColor.value),'emissive color valid hex');
     console.assert(parseFloat(emiI.value)>=0 && parseFloat(emiI.value)<=5,'emissive multiplier in range');
-    console.assert(document.getElementById('selList'),'selection list exists');
-    console.assert(document.getElementById('dots'),'dots layer exists');
+        console.assert(document.getElementById('dots'),'dots layer exists');
     console.assert(ANIM_MS===1000,'animation duration 1s');
     
     // URL fallback tests
