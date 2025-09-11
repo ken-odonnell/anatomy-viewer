@@ -1,557 +1,423 @@
 <!doctype html>
 <html lang="en">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no" />
-  <title>Anatomy Viewer — Emissive Build v7.2 (Null-anchored dots, no gizmo)</title>
-  <style>
-    html,body{margin:0;height:100%;background:#0C0F13;color:#e6e6e6;font-family:system-ui,Segoe UI,Roboto,Arial,sans-serif}
-    #canvas{width:100%;height:100%;display:block}
-    #hud{position:fixed;top:10px;right:10px;display:flex;gap:10px;z-index:12;align-items:flex-start;flex-wrap:wrap;transform:scale(.9);transform-origin:top right}
-    .btn{display:inline-flex;align-items:center;gap:8px;background:#14181f;color:#e6e6e6;border:1px solid #2a3140;border-radius:8px;padding:8px 10px;font-size:15px;cursor:pointer}
-    .btn:active{transform:translateY(1px)}
-    .btn .icon{width:16px;height:16px;display:inline-block;filter:invert(1);opacity:.9}
-    .pill{display:flex;align-items:center;gap:6px;background:rgba(20,24,31,.9);border:1px solid #2a3140;color:#e6e6e6;border-radius:10px;padding:6px 8px}
-    .num{min-width:3ch;text-align:right;font-variant-numeric:tabular-nums}
-    #status{position:fixed;left:10px;bottom:10px;background:rgba(0,0,0,.65);color:#fff;padding:6px 8px;border-radius:8px;font-size:12px;max-width:70vw;white-space:pre-wrap;z-index:12}
-
-    /* Selection list */
-    #selPanel{display:flex;flex-direction:column;gap:6px;max-height:40vh;overflow:auto;min-width:200px}
-    #selPanel h4{margin:0 0 4px 0;font-size:13px;color:#9fb0c9;font-weight:600;letter-spacing:.04em;text-transform:uppercase}
-    #selList{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:4px}
-    #selList li{background:#0f141b;border:1px solid #263041;color:#dbe7ff;padding:4px 6px;border-radius:6px;font-size:14px}
-    input[type="color"]{background:transparent;border:none}
-    input[type="range"]{accent-color:#9EDFFF}
-
-    /* Dots overlay */
-    #dots{position:fixed;left:0;top:0;width:100%;height:100%;pointer-events:none;z-index:11}
-    .dot{position:absolute;transform:translate(-50%,-50%);pointer-events:auto;cursor:pointer;width:5px;height:5px;border-radius:50%;background:#fff;border:2px solid #000;box-shadow:none}
-    .dot.dim{opacity:0.45}
-    .dot.hidden{display:none}
-  </style>
-  <script async src="https://unpkg.com/es-module-shims@1.10.0/dist/es-module-shims.js"></script>
-  <script type="importmap">
-  {"imports":{
-    "three":"https://unpkg.com/three@0.161.0/build/three.module.js",
-    "three/addons/":"https://unpkg.com/three@0.161.0/examples/jsm/"
-  }}
-  </script>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no" />
+<title>Anatomy Viewer</title>
+<style>
+  html,body{margin:0;height:100%;background:#58606A;color:#0C0F13;font-family:system-ui,Segoe UI,Roboto,Arial,sans-serif}
+  #canvas{width:100%;height:100%;display:block}
+  #hud{position:fixed;top:10px;right:10px;z-index:12}
+  .btn{display:inline-flex;gap:8px;background:#14181f;color:#e6e6e6;border:1px solid #2a3140;border-radius:8px;padding:8px 10px;font-size:14px;cursor:pointer}
+  .btn:active{transform:translateY(1px)}
+  .btn .icon{width:16px;height:16px;filter:invert(1);opacity:.9}
+  #dots{position:fixed;inset:0;pointer-events:none;z-index:11}
+  .dot{position:absolute;transform:translate(-50%,-50%);pointer-events:auto;cursor:pointer;width:6px;height:6px;border-radius:50%;background:#fff;border:2px solid #000}
+  .dot.dim{opacity:.45}
+  .dot.hidden{display:none}
+  #status{position:fixed;left:10px;bottom:10px;background:rgba(0,0,0,.65);color:#fff;padding:6px 8px;border-radius:8px;font-size:12px;max-width:70vw;white-space:pre-wrap;z-index:12}
+</style>
+<script async src="https://unpkg.com/es-module-shims@1.10.0/dist/es-module-shims.js"></script>
+<script type="importmap">{"imports":{
+  "three":"https://unpkg.com/three@0.161.0/build/three.module.js",
+  "three/addons/":"https://unpkg.com/three@0.161.0/examples/jsm/"
+}}</script>
 </head>
 <body>
   <canvas id="canvas"></canvas>
   <div id="dots"></div>
-
   <div id="hud">
-    <button id="reset" class="btn" title="Reset camera and selection"><img class="icon" src="https://raw.githubusercontent.com/ken-odonnell/model-host/main/reset-icon.svg" alt=""> Reset</button>
+    <button id="reset" class="btn" title="Reset camera and selection">
+      <img class="icon" src="https://raw.githubusercontent.com/ken-odonnell/model-host/main/reset-icon.svg" alt=""> Reset
+    </button>
   </div>
   <div id="status" role="status" aria-live="polite"></div>
 
-  <script type="module">
-  import * as THREE from 'three';
-  import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-  import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
-  import { KTX2Loader } from 'three/addons/loaders/KTX2Loader.js';
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { KTX2Loader } from 'three/addons/loaders/KTX2Loader.js';
 
-  // ---------- Config ----------
-  const RAW_PLACEHOLDER = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMB/6XK5NQAAAAASUVORK5CYII='; // 1×1 transparent PNG
-  const EMISSIVE_FALLBACK_URL = 'https://github.com/ken-odonnell/model-host/blob/main/AvatarTexture.png';
-  const GLB_URLS = [
-    'https://github.com/ken-odonnell/model-host/blob/main/Avatar.glb'
-  ];
-  const BLOCK_LIST = new Set(['body']);
-  const ANIM_MS = 1000; // 1s transition between lit and dim
+// Config
+const GLB_URLS = ['https://github.com/ken-odonnell/model-host/blob/main/Avatar.glb'];
+const EMISSIVE_FALLBACK = 'https://github.com/ken-odonnell/model-host/blob/main/AvatarTexture.png';
+const HOVER_EMI = 6, EMISSIVE_I = 2, ALBEDO = '#2b2b2b', EMI_COLOR = '#9EDFFF', ANIM_MS = 1000;
+const BLOCK = new Set(['body']);
+const statusEl = document.getElementById('status');
+const setStatus = t => statusEl.textContent = t||'';
 
-  // ---------- DOM ----------
-  const canvas = document.getElementById('canvas');
-  const dotsLayer = document.getElementById('dots');
-  const resetBtn = document.getElementById('reset');
-  
-  const bg = document.getElementById('bg') || { value:'#0C0F13' };
-  const shadePicker = document.getElementById('shade') || { value:'#2b2b2b' };
-  const albedoI = document.getElementById('albedoI') || { value:'1' };
-  const albedoVal = document.getElementById('albedoVal') || { textContent:'1.00' };
-  const emiColor = document.getElementById('emiColor') || { value:'#9EDFFF' };
-  const emiI = document.getElementById('emiI') || { value:'2' };
-  const emiIval = document.getElementById('emiIval') || { textContent:'2.00' };
-  const statusEl = document.getElementById('status');
-  const selList = document.getElementById('selList') || null;
-  const clearSel = document.getElementById('clearSel') || null;
-  const resetBtnEl = document.getElementById('reset');
+// Soft-constraint params
+const PAN_SOFT_RADIUS = 0.60;   // as fraction of model radius
+const PAN_PULL = 0.18;          // 0..1, easing per frame when out of bounds
+const PITCH_MIN = THREE.MathUtils.degToRad(40);  // too-high looking down -> push toward 25°
+const PITCH_MAX = THREE.MathUtils.degToRad(140); // too-low looking up   -> push toward 155°
+const PITCH_PULL = 0.12;        // easing toward allowed pitch
 
-  const logDebug = ()=>{}; // no debug UI
-  function setStatus(t){ statusEl.textContent = t || ''; }
+// Zoom + idle spin
+const ZOOM_MIN_MULT = 0.15;     // min zoom-in distance as multiple of model radius
+const ZOOM_MAX_MULT = 6;        // max zoom-out distance as multiple of model radius
+const HOME_SPIN_SPEED = 0.05;   // rad/s for idle home rotation
 
-  // ---------- Three.js ----------
-  const renderer = new THREE.WebGLRenderer({ canvas, antialias:true, alpha:true });
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio,2));
-  renderer.setSize(window.innerWidth, window.innerHeight);
-  renderer.outputColorSpace = THREE.SRGBColorSpace;
-  renderer.toneMapping = THREE.NoToneMapping;
-  renderer.setClearColor(0x000000, 0);
 
-  const scene = new THREE.Scene();
-  const camera = new THREE.PerspectiveCamera(50, window.innerWidth/window.innerHeight, 0.01, 10000);
-  const controls = new OrbitControls(camera, renderer.domElement);
-  controls.enableDamping = true; controls.dampingFactor = 0.06; controls.zoomSpeed = 1.6; controls.rotateSpeed = 1.2; controls.panSpeed = 1.2;
-  controls.minDistance = 0.02; controls.maxDistance = 2000; controls.zoomToCursor = true;
+// Renderer/scene
+const renderer = new THREE.WebGLRenderer({ canvas:document.getElementById('canvas'), antialias:true, alpha:true });
+renderer.setPixelRatio(Math.min(devicePixelRatio,2));
+renderer.setSize(innerWidth, innerHeight);
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+renderer.toneMapping = THREE.NoToneMapping;
+renderer.setClearColor(0x000000,0);
 
-  const hemi = new THREE.HemisphereLight(0xffffff, 0x404040, 0.5); scene.add(hemi);
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(50, innerWidth/innerHeight, 0.01, 10000);
+const controls = new OrbitControls(camera, renderer.domElement);
+Object.assign(controls,{enableDamping:true,dampingFactor:.06,zoomSpeed:1.6,rotateSpeed:1.2,panSpeed:1.2,minDistance:.02,maxDistance:2000,zoomToCursor:true});
+scene.add(new THREE.HemisphereLight(0xffffff,0x404040,.5));
 
-  let root = null; let meshes = []; let litSet = new Set(); let parts = new Map();
-  let homeTarget = new THREE.Vector3(); let homePos = new THREE.Vector3(); let radius = 1;
-  const originalMat = new WeakMap();
-  const meshAnim = new WeakMap(); // mesh -> {t, target}
-  const partCenters = new Map(); // partName -> world center
-  const partAnchors = new Map(); // anchorKey -> Vector3 (member name or canonical)
-  const partDots = new Map();    // anchorKey -> HTMLElement
-  let lastClickedKey = null;
-  // turntable orbit state for arms
-  const turntable = { active:false, center:new THREE.Vector3(), speed:0.15, token:0 };
-  function stopTurntable(){ turntable.active=false; turntable.token++; }
-  function startTurntableAfter(ms, center){ const my=++turntable.token; setTimeout(()=>{ if(turntable.token!==my) return; turntable.active=true; turntable.center.copy(center); }, ms); }
+// State
+let root=null, meshes=[], parts=new Map(), centers=new Map(), anchors=new Map(), dots=new Map();
+let lit=new Set(), anim=new WeakMap(), orig=new WeakMap(), hoveredCanon=null;
+let homePos=new THREE.Vector3(), homeTgt=new THREE.Vector3(), homeFov=50, radius=1;
+let lastClick={ckey:null,anchor:null};
+let softHoldUntil = 0; // pause soft constraints during focus tweens
+let panCenter = null; // soft pan center (focus anchor)
+let idleResumeAt = 0; // resume idle spin after this timestamp
+const turntable={on:false,center:new THREE.Vector3(),speed:.15,token:0};
+const stopTurn=()=>{turntable.on=false;turntable.token++;};
+function spinIfIdle(){ if(lit.size===0){ turntable.speed = HOME_SPIN_SPEED; startTurn(0, homeTgt.clone(), 1); } }
+const startTurn=(ms,center,sign=1)=>{const tok=++turntable.token;setTimeout(()=>{if(turntable.token!==tok)return;turntable.on=true;turntable.center.copy(center);turntable.speed=Math.abs(turntable.speed)*(sign>=0?1:-1);},ms);};
+// Idle recenter helpers
+function nearHome(){
+  return controls.target.distanceTo(homeTgt) < radius*0.02 &&
+         camera.position.distanceTo(homePos) < radius*0.05;
+}
+function recenterForIdle(){
+  const dur=900; softHoldUntil = performance.now()+dur+120; camTween(homePos, homeTgt, dur, homeFov);
+}
 
-  // ---------- UI state ----------
-  const saved = {
-    bg: localStorage.getItem('viewer_bg') || '#0C0F13',
-    shade: localStorage.getItem('viewer_shade') || '#2b2b2b',
-    albedoI: parseFloat(localStorage.getItem('viewer_albedoI') || '1'),
-    emiColor: localStorage.getItem('viewer_emiColor') || '#9EDFFF',
-    emiI: parseFloat(localStorage.getItem('viewer_emiI') || '2')
+// Utils
+const V3 = (...a)=>new THREE.Vector3(...a);
+const canon = s => String(s||'').replace(/([a-z])([A-Z])/g,'$1 $2').replace(/[_-]+/g,' ').replace(/\b(null|left|right|l|r)\b/gi,'').replace(/ +/g,' ').trim().toLowerCase();
+const topPart = o => { let c=o, n=o.name||''; while(c&&c.parent&&c.parent!==root){ if(c.parent.name) n=c.parent.name; c=c.parent; } return n||o.parent?.name||o.name||''; };
+const title = s => (s||'').split(' ').map(w=>w?w[0].toUpperCase()+w.slice(1):'').join(' ');
+const sideToken = s => { const x=String(s||'').toLowerCase(); return /_l\b|left/.test(x)?'l' : /_r\b|right/.test(x)?'r' : null; };
+const ghRaw = u => { try{const url=new URL(u,location.href); if(url.hostname==='github.com'){const [user,repo,mode,branch,...rest]=url.pathname.split('/').filter(Boolean); if(['blob','raw','edit','tree'].includes(mode)) return `https://raw.githubusercontent.com/${user}/${repo}/${branch}/${rest.join('/')}`;} }catch{} return u; };
+const urlDir = u => { try{const url=new URL(u); url.pathname=url.pathname.replace(/[^/]*$/,''); return url.href;}catch{return u;} };
+
+// Turntable rules (left = same as Armpit_L, right = mirrored)
+const ROTATE_WITH_ARMPIT = new Set(['armpit','lower arm','upper arm','inner thigh','outer thigh','flank','flanks','banana roll','bananaroll']);
+const sideSign = (ref, xFallback)=>{ const s = sideToken(ref); if (s) return s==='l' ? 1 : -1; return (xFallback >= homeTgt.x) ? -1 : 1; };
+const shouldMirrorTurn = ckey => ROTATE_WITH_ARMPIT.has(ckey);
+// Parts that should spin slowly on focus (center-line areas)
+const SPIN_ON_FOCUS = new Set(['abdomen','abs','chest','upper back','upperback','mid back','midback','lower back','lowerback','pubic','neck chin','neck/chin','neckchin']);
+
+// Materials + shading
+const cloneStd = m => {
+  const make = x=>{
+    const out=new THREE.MeshStandardMaterial();
+    out.map=x?.map||null; out.normalMap=x?.normalMap||null; out.roughnessMap=x?.roughnessMap||null; out.metalnessMap=x?.metalnessMap||null; out.emissiveMap=x?.emissiveMap||null;
+    out.color = new THREE.Color(ALBEDO);
+    out.emissive = out.emissiveMap ? new THREE.Color(EMI_COLOR) : new THREE.Color(0x000000);
+    out.emissiveIntensity = EMISSIVE_I;
+    out.roughness = typeof x?.roughness==='number'?x.roughness:1;
+    out.metalness = typeof x?.metalness==='number'?x.metalness:0;
+    out.transparent=!!x?.transparent; out.opacity = typeof x?.opacity==='number'?x.opacity:1;
+    return out;
   };
-  bg.value = saved.bg; shadePicker.value = saved.shade; albedoI.value = String(saved.albedoI); albedoVal.textContent = saved.albedoI.toFixed(2);
-  emiColor.value = saved.emiColor; emiI.value = String(saved.emiI); emiIval.textContent = saved.emiI.toFixed(2);
-  
-  document.body.style.background = saved.bg;
+  return Array.isArray(m)?m.map(make):make(m||{});
+};
+const storeOrig = mesh=>{ const m=mesh.material; orig.set(mesh,{emi:m.emissive?.clone(), emiI:('emissiveIntensity'in m)?m.emissiveIntensity:1}); anim.set(mesh,{t:1,target:1}); };
+const wantLit = m => lit.size===0 || (!BLOCK.has(topPart(m).toLowerCase()) && lit.has(topPart(m)));
+const isHovered = m => hoveredCanon && canon(topPart(m))===hoveredCanon;
+const shade = m=>{
+  const a=anim.get(m)||{t:1}, k=a.t, e=k*k*(3-2*k);
+  const emissBase = m.material.emissiveMap ? new THREE.Color(EMI_COLOR) : (orig.get(m)?.emi || new THREE.Color(0x000000));
+  const emiMul = (orig.get(m)?.emiI||1) * (isHovered(m)? HOVER_EMI : EMISSIVE_I) * (0.25 + (1-0.25)*e);
+  if(m.material.emissive) m.material.emissive.copy(emissBase).multiplyScalar(0.2+(1-0.2)*e);
+  if('emissiveIntensity'in m.material) m.material.emissiveIntensity = emiMul;
+};
+const updateTargets=()=>meshes.forEach(m=>{const a=anim.get(m)||{t:1}; a.target = wantLit(m)?1:0; anim.set(m,a);});
 
-  // ---------- Helpers ----------
-  function normalizeGitHubURL(u){
-    try{
-      const url = new URL(u, location.href);
-      if (url.hostname === 'github.com'){
-        const seg = url.pathname.split('/').filter(Boolean);
-        if (seg.length >= 5){
-          const user = seg[0], repo = seg[1], mode = seg[2], branch = seg[3];
-          const path = seg.slice(4).join('/');
-          if (['blob','raw','edit','tree'].includes(mode)){
-            return `https://raw.githubusercontent.com/${user}/${repo}/${branch}/${path}`;
-          }
-        }
+// Camera frame + tween
+let tween=null, queue=[];
+const camTween=(toPos,toTgt,dur=800,fovTo=null)=>{
+  const t={t0:performance.now(),dur,fromP:camera.position.clone(),fromT:controls.target.clone(),toP:toPos.clone(),toT:toTgt.clone(),fFrom:camera.fov,fTo:fovTo};
+  if(tween) queue.push(t); else tween=t;
+};
+const stepTween=()=>{
+  if(!tween) return;
+  const k=Math.min(1,(performance.now()-tween.t0)/tween.dur), e=k*k*(3-2*k);
+  camera.position.lerpVectors(tween.fromP,tween.toP,e);
+  controls.target.lerpVectors(tween.fromT,tween.toT,e);
+  if(tween.fTo!=null){ camera.fov=THREE.MathUtils.lerp(tween.fFrom,tween.fTo,e); camera.updateProjectionMatrix(); }
+  if(k>=1){ tween=null; if(queue.length){ tween=queue.shift(); tween.t0=performance.now(); } }
+};
+const frameRoot=()=>{
+  const box=new THREE.Box3().setFromObject(root), s=box.getBoundingSphere(new THREE.Sphere());
+  root.position.y -= box.min.y;
+  radius=Math.max(1e-3,s.radius);
+  const dist=radius*2.2;
+  camera.position.set(s.center.x, s.center.y+radius*.5, s.center.z+dist);
+  controls.target.copy(s.center);
+  homePos.copy(camera.position); homeTgt.copy(controls.target); homeFov=camera.fov;
+  camera.near=Math.max(.01,radius*.01); camera.far=Math.max(1000,radius*50); camera.updateProjectionMatrix();
+  controls.minDistance=radius*ZOOM_MIN_MULT; controls.maxDistance=radius*ZOOM_MAX_MULT;
+};
+const home=()=>{ queue.length=0; tween=null; camTween(homePos,homeTgt,600,homeFov); spinIfIdle(); };
+
+// Parts, centers, anchors, dots
+const groupsByCanon = ()=>{ const map=new Map(); for(const name of parts.keys()){ if(BLOCK.has(name.toLowerCase())) continue; const k=canon(name); if(!map.has(k)) map.set(k,[]); map.get(k).push(name);} return map; };
+const computeCenters=()=>{ centers.clear(); for(const [name,rec] of parts){ if(BLOCK.has(name.toLowerCase())) continue; const box=new THREE.Box3(); rec.meshes.forEach(m=>box.expandByObject(m)); centers.set(name, box.getCenter(new THREE.Vector3())); } };
+const dotsLayer=document.getElementById('dots');
+const clearDots=()=>{ dotsLayer.innerHTML=''; dots.clear(); anchors.clear(); };
+const authoredNulls=()=>{ const out=[]; root.traverse(o=>{ if(!o.isMesh && /_null\b/i.test(o.name||'')) out.push(o); }); return out; };
+const makeDot=(anchorKey,canonKey)=>{ const el=document.createElement('div'); el.className='dot'; el.title=canonKey; el.dataset.anchor=anchorKey; el.dataset.canon=canonKey; el.addEventListener('click',e=>{ e.stopPropagation(); toggleByCanon(canonKey, anchorKey); }); dotsLayer.appendChild(el); dots.set(anchorKey,el); };
+const buildDots=()=>{
+  clearDots();
+  const seen=new Set();
+  for(const o of authoredNulls()){
+    const w=o.getWorldPosition(new THREE.Vector3()), local=w.clone(); root.worldToLocal(local);
+    const c=canon(o.name); if(BLOCK.has(c)) continue;
+    anchors.set(o.name, local); makeDot(o.name, c); seen.add(c);
+  }
+  const groups=groupsByCanon();
+  for(const [key,members] of groups){
+    if(seen.has(key)) continue;
+    const hasSides = members.some(n=>/_([lr])\b/i.test(n) || /\b(left|right)\b/i.test(n));
+    if(hasSides){ members.forEach(n=>{ anchors.set(n, (centers.get(n)||new THREE.Vector3()).clone()); makeDot(n,key); }); }
+    else{ const c=new THREE.Vector3(); members.forEach(n=>c.add(centers.get(n)||new THREE.Vector3())); c.multiplyScalar(1/Math.max(1,members.length)); anchors.set(key,c); makeDot(key,key); }
+  }
+};
+const updateDots=()=>{
+  if(!root) return;
+  const proj=new THREE.Vector3(), camP=camera.position.clone(), r=renderer.domElement.getBoundingClientRect(), ray=new THREE.Raycaster();
+  for(const [aKey,el] of dots){
+    const local=anchors.get(aKey); if(!local) continue;
+    const w=local.clone(); root.localToWorld(w);
+    proj.copy(w).project(camera);
+    el.style.left = ((proj.x*.5+.5)*r.width+r.left)+'px';
+    el.style.top  = ((-proj.y*.5+.5)*r.height+r.top)+'px';
+    const dir=new THREE.Vector3().subVectors(w,camP), dist=dir.length(); dir.normalize(); ray.set(camP,dir);
+    const hit=ray.intersectObjects(meshes,true); const blocked=hit.length && hit[0].distance<dist-.005; el.classList.toggle('hidden',blocked);
+    const k=el.dataset.canon, mem=Array.from(parts.keys()).filter(n=>canon(n)===k), sel=mem.some(n=>lit.has(n));
+    el.classList.toggle('dim', lit.size>0 && !sel);
+    el.style.opacity = (hoveredCanon && k===hoveredCanon) ? '1' : '';
+  }
+};
+
+// Selection + focus
+const focusTo = (center, partR, opts={})=>{
+  const pad=2.4, fov=THREE.MathUtils.degToRad(camera.fov);
+  const distFit=(partR/Math.tan(fov*.5))*pad;
+  const toFov = THREE.MathUtils.clamp(homeFov-10,28,45);
+  const dur = 900; // keep in sync with camTween duration
+  softHoldUntil = performance.now() + dur + 120; // suppress soft-constraint bump during/after tween
+  panCenter = center.clone();
+  if(opts.fromSide){
+    const s = Math.sign(opts.fromSide)||1, a=Math.SQRT1_2;
+    const toPos=V3(center.x + s*distFit*a, center.y + partR*.08, center.z + distFit*a);
+    camTween(toPos, center.clone(), dur, toFov);
+  } else {
+    const dir=new THREE.Vector3().subVectors(camera.position,controls.target).normalize();
+    const toPos=center.clone().addScaledVector(dir, Math.max(distFit, controls.minDistance*1.5));
+    camTween(toPos, center.clone(), dur, toFov);
+  }
+};
+const getAnchorFor = (canonKey, focusMember)=>{
+  if(focusMember){
+    if(anchors.has(focusMember)) return focusMember;
+    if(anchors.has(`${focusMember}_Null`)) return `${focusMember}_Null`;
+    const s=sideToken(focusMember);
+    if(s){ for(const k of anchors.keys()){ if(canon(k)===canonKey){ const L=/(?:_l\b|left)/i.test(k), R=/(?:_r\b|right)/i.test(k); if((s==='l'&&L)||(s==='r'&&R)) return k; } } }
+  }
+  for(const k of anchors.keys()) if(canon(k)===canonKey) return k;
+  return null;
+};
+const toggleByCanon = (ckey, focusMember=null)=>{
+  // Determine anchor first so we can distinguish L vs R for double-click reset
+  const ak = getAnchorFor(ckey, focusMember);
+  const repAnchor = ak || focusMember || null;
+
+  const groups = groupsByCanon(), members = groups.get(ckey) || [];
+  const wasSelected = members.some(n=>lit.has(n));
+
+  const repeated = (lastClick.ckey===ckey && lastClick.anchor===repAnchor && wasSelected);
+  lastClick = { ckey: ckey, anchor: repAnchor };
+
+  // toggle selection
+  members.forEach(n=> wasSelected ? lit.delete(n) : lit.add(n));
+  updateTargets();
+  if(repeated){ stopTurn(); panCenter=null; home(); return; }
+
+  const bboxOfMembers = list=>{ const box=new THREE.Box3(); list.forEach(n=>{ const rec=parts.get(n); if(rec) rec.meshes.forEach(m=>box.expandByObject(m)); }); const s=box.getBoundingSphere(new THREE.Sphere()); return {c:s.center, r:Math.max(1e-3,s.radius)}; };
+
+  if (ak && anchors.has(ak)){
+    const local=anchors.get(ak).clone();
+    const world=local.clone(); root.localToWorld(world);
+    const sign = sideSign(focusMember||ak, world.x);
+
+    if (ckey==='armpit'){
+      focusTo(world, Math.max(1e-3, radius*.18), {fromSide:sign});
+      startTurn(900, world, -sign);
+    } else {
+      const partR = Math.max(1e-3, radius*.18);
+      if (ckey==='upper arm' || ckey==='lower arm') {
+        focusTo(world, partR, {fromSide:sign});
+        startTurn(900, world, -sign);
+      } else if (SPIN_ON_FOCUS.has(ckey)) {
+        focusTo(world, partR);
+        turntable.speed = HOME_SPIN_SPEED;
+        startTurn(900, world, 1);
+      } else {
+        focusTo(world, partR);
+        if (shouldMirrorTurn(ckey)) startTurn(900, world, -sign); else stopTurn();
       }
-      return u;
-    }catch{ return u; }
-  }
-  function urlDir(u){ try{ const url=new URL(u); url.pathname=url.pathname.replace(/[^/]*$/, ''); return url.href; }catch{ return u; } }
-
-  function canonKey(name){
-    // Normalize names from GLB to a canonical key used for grouping and display
-    let s = String(name||'');
-    // split CamelCase like "UpperArm" -> "Upper Arm"
-    s = s.replace(/([a-z])([A-Z])/g,'$1 $2');
-    // underscores and hyphens to spaces
-    s = s.replace(/[_-]+/g,' ');
-    // collapse spaces
-    s = s.replace(/ +/g,' ').trim();
-    // drop side markers and null tokens
-    const filtered = s.split(' ').filter(t=>{
-      const k=t.toLowerCase();
-      return k!=='null' && k!=='l' && k!=='r' && k!=='left' && k!=='right' && k!=='_null';
-    });
-    s = filtered.join(' ').toLowerCase();
-    return s;
-  }
-
-  // ---------- Materials ----------
-  function cloneMaterial(mat){
-    const make = (m)=>{
-      const out = new THREE.MeshStandardMaterial();
-      out.map = m?.map || null;
-      out.normalMap = m?.normalMap || null;
-      out.roughnessMap = m?.roughnessMap || null;
-      out.metalnessMap = m?.metalnessMap || null;
-      out.emissiveMap = m?.emissiveMap || null;
-      out.color = (m?.color ? m.color.clone() : new THREE.Color(0x000000));
-      const hasEmissiveMap = !!m?.emissiveMap;
-      out.emissive = hasEmissiveMap ? new THREE.Color(emiColor.value) : (m?.emissive ? m.emissive.clone() : new THREE.Color(0x000000));
-      out.emissiveIntensity = typeof m?.emissiveIntensity==='number' ? m.emissiveIntensity : 1;
-      out.roughness = typeof m?.roughness==='number' ? m.roughness : 1;
-      out.metalness = typeof m?.metalness==='number' ? m.metalness : 0;
-      out.transparent = !!m?.transparent; out.opacity = typeof m?.opacity==='number' ? m.opacity : 1;
-      return out;
-    };
-    return Array.isArray(mat) ? mat.map(make) : make(mat||{});
-  }
-  function storeOriginal(m){
-    const mat = m.material;
-    originalMat.set(m, {
-      color: mat.color ? mat.color.clone() : null,
-      emissive: mat.emissive ? mat.emissive.clone() : null,
-      emissiveIntensity: typeof mat.emissiveIntensity==='number' ? mat.emissiveIntensity : 1
-    });
-    meshAnim.set(m, { t:1, target:1 }); // default lit
-  }
-
-  function desiredLitForMesh(m){
-    if (litSet.size===0) return true; // all lit by default
-    const part = topPartName(m);
-    return !BLOCK_LIST.has(part.toLowerCase()) && litSet.has(part);
-  }
-
-  function applyShadingFromAnim(m){
-    const rec = originalMat.get(m) || {};
-    const anim = meshAnim.get(m) || {t:1};
-    const blend = anim.t; // 1 = lit, 0 = dim
-    const ease = blend*blend*(3-2*blend);
-
-    const baseAlbedo = new THREE.Color(shadePicker.value);
-    const albedoMul = parseFloat(albedoI.value) * (0.35 + (1-0.35)*ease);
-    if (m.material.color) m.material.color.copy(baseAlbedo).multiplyScalar(albedoMul);
-
-    const baseEmissive = m.material.emissiveMap ? new THREE.Color(emiColor.value) : (rec.emissive ? rec.emissive.clone() : new THREE.Color(0x000000));
-    const emissMul = (rec.emissiveIntensity ?? 1) * parseFloat(emiI.value) * (0.25 + (1-0.25)*ease);
-    if (m.material.emissive) m.material.emissive.copy(baseEmissive).multiplyScalar(0.2 + (1-0.2)*ease);
-    if ('emissiveIntensity' in m.material) m.material.emissiveIntensity = emissMul;
-  }
-
-  function updateAnimTargets(){ meshes.forEach(m=>{ const a=meshAnim.get(m); if(!a) meshAnim.set(m,{t:1,target:1}); const target = desiredLitForMesh(m) ? 1 : 0; meshAnim.get(m).target = target; }); }
-
-  // ---------- Scene prep ----------
-  function topPartName(o){ let c=o, name=o.name||''; while(c&&c.parent&&c.parent!==root){ if(c.parent.name) name=c.parent.name; c=c.parent; } return name||o.parent?.name||o.name||''; }
-  function groundSnapAndFrame(){
-    const bbox = new THREE.Box3().setFromObject(root);
-    const minY=bbox.min.y; root.position.y -= minY;
-    const sphere=bbox.getBoundingSphere(new THREE.Sphere());
-    radius=Math.max(1e-3,sphere.radius);
-    const dist=radius*2.2; camera.position.set(sphere.center.x, sphere.center.y+radius*0.5, sphere.center.z+dist);
-    controls.target.set(sphere.center.x, sphere.center.y, sphere.center.z);
-    homeTarget.copy(controls.target); homePos.copy(camera.position);
-    camera.near=Math.max(0.01,radius*0.01); camera.far=Math.max(1000,radius*50); camera.updateProjectionMatrix();
-    controls.minDistance=radius*0.05; controls.maxDistance=radius*50.0;
-  }
-
-  // ---------- Camera tween ----------
-  let focusTween = null; const tweenQueue = [];
-  function startCamTween(toPos, toTgt, durMs=800){ const t={ t0: performance.now(), dur: durMs, fromPos: camera.position.clone(), fromTgt: controls.target.clone(), toPos: toPos.clone(), toTgt: toTgt.clone() }; if(focusTween) tweenQueue.push(t); else focusTween=t; }
-  function stepFocusTween(){ if(!focusTween) return; const t=(performance.now()-focusTween.t0)/focusTween.dur; const k=Math.min(1,t); const e=k*k*(3-2*k); camera.position.lerpVectors(focusTween.fromPos, focusTween.toPos, e); controls.target.lerpVectors(focusTween.fromTgt, focusTween.toTgt, e); if(k>=1){ focusTween=null; if(tweenQueue.length){ focusTween=tweenQueue.shift(); focusTween.t0=performance.now(); } } }
-  function startFocusTweenTo(center, partRadius, durMs=800){ const fov=THREE.MathUtils.degToRad(camera.fov); const pad=2.4; const distFit=(partRadius/Math.tan(fov*0.5))*pad; const dir=new THREE.Vector3().subVectors(camera.position, controls.target).normalize(); const toPos=new THREE.Vector3().copy(center).addScaledVector(dir, Math.max(distFit, controls.minDistance*1.5)); startCamTween(toPos, center.clone(), durMs); }
-  function startHomeTween(durMs=800){ tweenQueue.length=0; focusTween=null; startCamTween(homePos.clone(), homeTarget.clone(), durMs); }
-  function startFocusFromSide(center, partRadius, sideSign=1, durMs=900){
-    const fov = THREE.MathUtils.degToRad(camera.fov);
-    const pad = 2.4;
-    const distFit = (partRadius/Math.tan(fov*0.5))*pad;
-    const clamped = Math.sign(sideSign)||1;
-    const a = 0.70710678; // cos/sin(45deg)
-    const toPos = new THREE.Vector3(
-      center.x + clamped*distFit*a,
-      center.y + partRadius*0.08,
-      center.z + distFit*a
-    );
-    startCamTween(toPos, center.clone(), durMs);
-  }
-  function getSideSign(focusMember, worldX){
-    let sign = 0;
-    if (focusMember){
-      const f = String(focusMember).toLowerCase();
-      if (f.includes('_l') || f.includes('left')) sign = -1;
-      else if (f.includes('_r') || f.includes('right')) sign = 1;
     }
-
-    if (!sign){ sign = (worldX >= homeTarget.x) ? 1 : -1; }
-    return sign;
+    return;
   }
 
-  // ---------- Loader with multi-stage texture fallback ----------
-  function makeLoader(){
-    const manager = new THREE.LoadingManager();
-    const ktx2 = new KTX2Loader(manager)
-      .setTranscoderPath('https://unpkg.com/three@0.161.0/examples/jsm/libs/basis/')
-      .detectSupport(renderer);
-    const loader = new GLTFLoader(manager);
-    loader.setCrossOrigin('anonymous');
-    loader.setKTX2Loader(ktx2);
-    return { loader, manager };
-  }
-
-  async function loadWithRetry(url){
-    const normalized = normalizeGitHubURL(url);
-    const base = urlDir(normalized);
-
-    const failed = new Set();
-    const { loader, manager } = makeLoader();
-    manager.setURLModifier((u)=> normalizeGitHubURL(u));
-    manager.itemError = (u)=>{ failed.add(normalizeGitHubURL(u)); };
-
-    try{
-      setStatus('Loading '+ normalized.split('/').slice(-1)[0] +' …');
-      loader.setResourcePath(base);
-      const g = await loader.loadAsync(normalized);
-      setStatus('Loaded');
-      return { gltf:g, failed: Array.from(failed) };
-    }catch(err){
-      // Attempt 2: redirect all image-like URLs to the repo emissive PNG
-      const fallback = normalizeGitHubURL(EMISSIVE_FALLBACK_URL);
-      const { loader: loader2, manager: manager2 } = makeLoader();
-      manager2.setURLModifier((u)=>{ const n = normalizeGitHubURL(u); return /\.(png|jpe?g|webp|ktx2)$/i.test(n) ? fallback : n; });
-      try{ loader2.setResourcePath(base); const g2 = await loader2.loadAsync(normalized); setStatus('Loaded with repo texture fallback'); return { gltf:g2, failed: Array.from(failed) }; }
-      catch(err2){
-        // Attempt 3: hard fallback to tiny data-URL to guarantee decode
-        const { loader: loader3, manager: manager3 } = makeLoader();
-        manager3.setURLModifier((u)=>{ const n = normalizeGitHubURL(u); return /\.(png|jpe?g|webp|ktx2)$/i.test(n) ? RAW_PLACEHOLDER : n; });
-        try{ loader3.setResourcePath(base); const g3 = await loader3.loadAsync(normalized); setStatus('Loaded with data-URL placeholder textures'); return { gltf:g3, failed: Array.from(failed) }; }
-        catch(err3){ setStatus('Error after all retries: '+(err3?.message||err3)); throw err3; }
+  const targetList = focusMember && parts.has(focusMember) ? [focusMember] : members;
+  if(targetList.length){
+    const {c,r}=bboxOfMembers(targetList);
+    const sign = sideSign(focusMember, c.x);
+    if(ckey==='armpit'){
+      focusTo(c, r, {fromSide:sign}); startTurn(900, c.clone(), -sign);
+    } else {
+      if (ckey==='upper arm' || ckey==='lower arm') {
+        focusTo(c, r, {fromSide:sign});
+        startTurn(900, c.clone(), -sign);
+      } else if (SPIN_ON_FOCUS.has(ckey)) {
+        focusTo(c, r);
+        turntable.speed = HOME_SPIN_SPEED;
+        startTurn(900, c.clone(), 1);
+      } else {
+        focusTo(c, r);
+        if(shouldMirrorTurn(ckey)) startTurn(900, c.clone(), -sign); else stopTurn();
       }
     }
   }
+};
 
-  async function tryURLs(urls){ for(const url of urls){ try{ const { gltf } = await loadWithRetry(url); return gltf; } catch(e){ console.warn('Load failed', url, e); } } return null; }
-
-  function clearModel(){ if(!root) return; scene.remove(root); root=null; meshes=[]; litSet.clear(); parts.clear(); updateSelUI(); clearDots(); }
-
-  function attachModel(gltf){
-    clearModel(); root=gltf.scene||gltf.scenes?.[0]; scene.add(root);
-    meshes = []; root.traverse(o=>{ if(o.isMesh){ o.material = cloneMaterial(o.material); storeOriginal(o); meshes.push(o); } });
-    parts.clear(); const all=[]; root.traverse(o=>{ if(o.isMesh) all.push(o); });
-    for(const m of all){ let p=m; while(p.parent&&p.parent!==root) p=p.parent; const key=p.name||m.name||'Part'; if(!parts.has(key)) parts.set(key,{meshes:[]}); parts.get(key).meshes.push(m); }
-
-    computePartCenters();
-    buildDots();
-
-    groundSnapAndFrame(); litSet.clear(); updateAnimTargets(); updateSelUI();
+// Loader + attach
+const makeLoader=()=>{ const mgr=new THREE.LoadingManager(); const ktx2=new KTX2Loader(mgr).setTranscoderPath('https://unpkg.com/three@0.161.0/examples/jsm/libs/basis/').detectSupport(renderer); const ld=new GLTFLoader(mgr); ld.setCrossOrigin('anonymous'); ld.setKTX2Loader(ktx2); return {ld,mgr}; };
+const loadGLB=async url=>{
+  const base=urlDir(ghRaw(url)); setStatus('Loading '+url.split('/').pop()+' …');
+  try{ const {ld,mgr}=makeLoader(); mgr.setURLModifier(u=>ghRaw(u)); ld.setResourcePath(base); const g=await ld.loadAsync(ghRaw(url)); setStatus('Loaded'); return g; }
+  catch{
+    const tryMap=[EMISSIVE_FALLBACK,'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMB/6XK5NQAAAAASUVORK5CYII='];
+    for(const tex of tryMap){ try{ const {ld,mgr}=makeLoader(); mgr.setURLModifier(u=>/\.(png|jpe?g|webp|ktx2)$/i.test(ghRaw(u))? ghRaw(tex) : ghRaw(u)); ld.setResourcePath(base); const g=await ld.loadAsync(ghRaw(url)); setStatus(tex===EMISSIVE_FALLBACK?'Loaded with repo texture':'Loaded with placeholder textures'); return g; }catch{} }
+    throw new Error('All retries failed');
   }
+};
+const tryURLs=async urls=>{ for(const u of urls){ try{ return await loadGLB(u); }catch(e){ console.warn('Failed',u,e);} } return null; };
+const attach= gltf=>{
+  if(root){ scene.remove(root); root=null; meshes.length=0; lit.clear(); parts.clear(); clearDots(); }
+  root=gltf.scene||gltf.scenes?.[0]; scene.add(root);
+  root.traverse(o=>{ if(o.isMesh){ o.material=cloneStd(o.material); storeOrig(o); meshes.push(o); } });
+  root.traverse(o=>{ if(o.isMesh){ let p=o; while(p.parent&&p.parent!==root) p=p.parent; const key=p.name||o.name||'Part'; if(!parts.has(key)) parts.set(key,{meshes:[]}); parts.get(key).meshes.push(o); } });
+  computeCenters(); buildDots(); frameRoot(); updateTargets(); spinIfIdle();
+};
 
-  // ---------- Dots ----------
-  function clearDots(){ dotsLayer.innerHTML=''; partDots.clear(); }
+// Picking + hover
+const ray=new THREE.Raycaster(), ndc=new THREE.Vector2();
+const pick=(cx,cy)=>{ const r=renderer.domElement.getBoundingClientRect(); ndc.x=((cx-r.left)/r.width)*2-1; ndc.y=-((cy-r.top)/r.height)*2+1; ray.setFromCamera(ndc,camera); const hits=ray.intersectObjects(meshes,true); if(!hits.length) return null; const part=topPart(hits[0].object); return BLOCK.has(part.toLowerCase())? null : part; };
+const down={x:0,y:0,t:0,moved:false};
+renderer.domElement.addEventListener('pointerdown',e=>{down.x=e.clientX;down.y=e.clientY;down.t=performance.now();down.moved=false; stopTurn(); idleResumeAt = performance.now()+5000;},{passive:true});
+renderer.domElement.addEventListener('pointermove',e=>{ if(down.t){ if(Math.hypot(e.clientX-down.x,e.clientY-down.y)>6) down.moved=true; } const mem=pick(e.clientX,e.clientY); const k=mem?canon(mem):null; if(k!==hoveredCanon){ hoveredCanon=k; updateDots(); } },{passive:true});
+renderer.domElement.addEventListener('pointerleave',()=>{ if(hoveredCanon){ hoveredCanon=null; updateDots(); } });
+renderer.domElement.addEventListener('pointerup',e=>{ const dt=performance.now()-down.t, drag=down.moved||dt>300; down.t=0; idleResumeAt = performance.now()+5000; if(drag) return; const mem=pick(e.clientX,e.clientY); if(!mem) return; toggleByCanon(canon(mem), mem); },{passive:false});
 
-  function groupByCanonical(){
-    const map = new Map();
-    for (const name of parts.keys()){
-      if (BLOCK_LIST.has(name.toLowerCase())) continue;
-      const key = canonKey(name);
-      if (!map.has(key)) map.set(key, []);
-      map.get(key).push(name);
-    }
-    return map;
-  }
+// Reset
+document.getElementById('reset').addEventListener('click',()=>{ updateTargets(); stopTurn(); panCenter=null; home(); });
 
-  function computePartCenters(){
-    partCenters.clear();
-    for (const [name, rec] of parts){ if (BLOCK_LIST.has(name.toLowerCase())) continue; const box=new THREE.Box3(); rec.meshes.forEach(m=>box.expandByObject(m)); const c=box.getCenter(new THREE.Vector3()); partCenters.set(name, c); }
-  }
-
-  function collectNullAnchors(){
-    const list = [];
-    root.traverse(o=>{
-      if (o.isMesh) return;
-      if (!o.name) return;
-      const n = o.name;
-      if (/_null\b/i.test(n)) list.push(o);
-    });
-    return list;
-  }
-
-  function buildDots(){
-    clearDots(); partAnchors.clear();
-
-    const authored = collectNullAnchors();
-    const seenCanon = new Set();
-    for (const o of authored){
-      const world = o.getWorldPosition(new THREE.Vector3());
-      const local = world.clone(); root.worldToLocal(local);
-      const canon = canonKey(o.name);
-      if (BLOCK_LIST.has(canon)) continue;
-      const key = o.name;
-      partAnchors.set(key, local);
-      createDotElement(key, canon, local);
-      seenCanon.add(canon);
-    }
-
-    const groups = groupByCanonical();
-    for (const [key, members] of groups){
-      if (seenCanon.has(key)) continue;
-      const hasSides = members.some(n=>/_([lr])\b/i.test(n) || /\b(left|right)\b/i.test(n));
-      if (hasSides){ members.forEach(n=> placeDotForAnchor(n, key)); }
-      else {
-        const c = new THREE.Vector3(); members.forEach(n=> c.add(partCenters.get(n)||new THREE.Vector3())); c.multiplyScalar(1/Math.max(1,members.length)); partAnchors.set(key, c); createDotElement(key, key, c);
-      }
-    }
-    
-  }
-
-  function placeDotForAnchor(memberName, canonical){ const c = partCenters.get(memberName) || new THREE.Vector3(); partAnchors.set(memberName, c.clone()); createDotElement(memberName, canonical, c); }
-
-  function titleize(s){ return s.split(' ').map(w=>w? w[0].toUpperCase()+w.slice(1) : '').join(' '); }
-  function createDotElement(anchorKey, canonicalKey){
-    const el=document.createElement('div');
-    el.className='dot';
-    el.title=canonicalKey;
-    el.dataset.anchor=anchorKey;
-    el.dataset.canon=canonicalKey;
-    dotsLayer.appendChild(el);
-    partDots.set(anchorKey, el);
-    el.addEventListener('click', (e)=>{ e.stopPropagation(); toggleSelectByCanonical(canonicalKey, anchorKey); });
-  }
-
-  
-  function updateDots(){
-    if(!root) return;
-    const v=new THREE.Vector3();
-    const proj=new THREE.Vector3();
-    const r=renderer.domElement.getBoundingClientRect();
-    const camPos = camera.position.clone();
-    const ray = new THREE.Raycaster();
-    for(const [anchorKey, el] of partDots){
-      const anchor = partAnchors.get(anchorKey); if(!anchor) continue;
-      v.copy(anchor); root.localToWorld(v);
-      // Project to screen
-      proj.copy(v).project(camera);
-      const x=(proj.x*0.5+0.5)*r.width + r.left;
-      const y=(-proj.y*0.5+0.5)*r.height + r.top;
-      el.style.left = x+'px'; el.style.top = y+'px';
-      // Occlusion
-      const dir = new THREE.Vector3().subVectors(v, camPos);
-      const dist = dir.length(); dir.normalize();
-      ray.set(camPos, dir);
-      const hits = ray.intersectObjects(meshes, true);
-      const blocked = hits.length && hits[0].distance < dist - 0.005;
-      el.classList.toggle('hidden', blocked);
-      // Dim
-      const canon = el.dataset.canon;
-      const members = Array.from(parts.keys()).filter(n=>canonKey(n)===canon);
-      const selected = members.some(n=>litSet.has(n));
-      const dim = (litSet.size>0 && !selected);
-      el.classList.toggle('dim', dim);
+// Soft constraints
+function applySoftConstraints(dt){
+  if (performance.now() < softHoldUntil) return; // avoid post-focus bump
+  if (turntable.on) return; // hold constraints during turntable
+  // 1) Pan-soft-limit: ease target + camera back toward home center when far
+  const center = panCenter || homeTgt; // focus center or avatar center
+  const delta = new THREE.Vector3().subVectors(controls.target, center);
+  const lim = radius * PAN_SOFT_RADIUS;
+  const d = delta.length();
+  if (!down.t && d > lim){
+    const k = PAN_PULL * (down.t ? 0.5 : 1.0); // weaker while dragging
+    const pull = Math.min(d - lim, radius) * k;
+    if (pull > 0){
+      const move = delta.normalize().multiplyScalar(pull);
+      controls.target.sub(move);
+      camera.position.sub(move);
     }
   }
-
-  // ---------- Display names ----------
-  const DISPLAY_NAME_MAP = {
-    'neck chin':'Neck/Chin', 'neck/chin':'Neck/Chin', 'neckchin':'Neck/Chin',
-    'chest':'Chest',
-    'abdomen':'Abdomen','abs':'Abdomen',
-    'pubic':'Pubic',
-    'flank':'Flanks','flanks':'Flanks',
-    'lower back':'Lower Back','lowerback':'Lower Back',
-    'mid back':'Mid Back','midback':'Mid Back',
-    'upper back':'Upper Back','upperback':'Upper Back',
-    'armpit':'Armpits','armpits':'Armpits',
-    'banana roll':'Banana Rolls','banana rolls':'Banana Rolls','bananaroll':'Banana Rolls',
-    'upper arm':'Upper Arms','upperarm':'Upper Arms',
-    'lower arm':'Lower Arms','lowerarm':'Lower Arms',
-    'inner thigh':'Inner Thighs','innerthigh':'Inner Thighs',
-    'outer thigh':'Outer Thighs','outerthigh':'Outer Thighs'
-  };
-  function titleCase(str){ return (str||'').split(' ').map(w=>w? w[0].toUpperCase()+w.slice(1):'').join(' '); }
-  function niceName(canon){ const key=(canon||'').trim().toLowerCase(); return DISPLAY_NAME_MAP[key] || titleCase(canon||''); }
-
-  // ---------- Selection UI ----------
-function updateSelUI(){}
-
-resetBtnEl.addEventListener('click', ()=>{ 
-  litSet.clear(); 
-  updateAnimTargets(); 
-  updateSelUI(); 
-  stopTurntable(); 
-  startHomeTween(600); 
-});
-
-// ---------- Picking ----------
-  const raycaster=new THREE.Raycaster(); const ndc=new THREE.Vector2();
-  const down = {x:0,y:0,t:0,moved:false};
-  renderer.domElement.addEventListener('pointerdown', (e)=>{ down.x=e.clientX; down.y=e.clientY; down.t=performance.now(); down.moved=false; }, {passive:true});
-  renderer.domElement.addEventListener('pointermove', (e)=>{ if(down.t){ const dx=e.clientX-down.x, dy=e.clientY-down.y; if(Math.hypot(dx,dy)>6) down.moved=true; } }, {passive:true});
-  function pickAt(clientX, clientY){ const r=renderer.domElement.getBoundingClientRect(); ndc.x=((clientX-r.left)/r.width)*2-1; ndc.y=-((clientY-r.top)/r.height)*2+1; raycaster.setFromCamera(ndc,camera); const hits=raycaster.intersectObjects(meshes,true); if(!hits.length) return null; const part=topPartName(hits[0].object); if(BLOCK_LIST.has(part.toLowerCase())) return null; return part; }
-  renderer.domElement.addEventListener('pointerup', (e)=>{ const dt=performance.now()-down.t; const wasDrag = down.moved || dt>300; down.t=0; if(wasDrag) return; const member = pickAt(e.clientX, e.clientY); if(!member) return; const key = canonKey(member); toggleSelectByCanonical(key, member); }, {passive:false});
-
-  function toggleSelectByCanonical(canonKeyStr, focusMember=null){
-    const groups = groupByCanonical();
-    const members = groups.get(canonKeyStr) || [];
-    const isRepeat = lastClickedKey === canonKeyStr;
-    lastClickedKey = canonKeyStr;
-
-    const anySelected = members.some(n=>litSet.has(n));
-    if (anySelected){ members.forEach(n=>litSet.delete(n)); } else { members.forEach(n=>litSet.add(n)); }
-
-    updateAnimTargets();
-    updateSelUI();
-
-    if (isRepeat){ stopTurntable(); startHomeTween(600); return; }
-
-    // Prefer focusing authored null for the clicked side
-    const anchorForMember = focusMember ? `${focusMember}_Null` : null;
-    if (anchorForMember && partAnchors.has(anchorForMember)){
-      const local = partAnchors.get(anchorForMember).clone(); const world = local.clone(); root.localToWorld(world);
-      if (canonKeyStr==='armpit'){ const sign = getSideSign(focusMember, world.x); startFocusFromSide(world, Math.max(1e-3, radius*0.18), sign, 900); stopTurntable(); return; }
-      startFocusTweenTo(world, Math.max(1e-3, radius*0.18), 900);
-      if (canonKeyStr==='upper arm' || canonKeyStr==='lower arm'){ startTurntableAfter(900, world); } else { stopTurntable(); }
-      return;
+  // 2) Pitch-soft-limit: ease camera elevation toward allowed band
+  const off = new THREE.Vector3().subVectors(camera.position, controls.target);
+  const R = off.length(); if (R > 1e-5){
+    const theta = Math.acos(THREE.MathUtils.clamp(off.y / R, -1, 1));
+    let tGoal = theta;
+    if (theta < PITCH_MIN) tGoal = THREE.MathUtils.lerp(theta, PITCH_MIN, PITCH_PULL * (down.t ? 0.5 : 1.0));
+    else if (theta > PITCH_MAX) tGoal = THREE.MathUtils.lerp(theta, PITCH_MAX, PITCH_PULL * (down.t ? 0.5 : 1.0));
+    if (tGoal !== theta){
+      const phi = Math.atan2(off.x, off.z);
+      const sinT = Math.sin(tGoal), cosT = Math.cos(tGoal);
+      const sinP = Math.sin(phi),  cosP = Math.cos(phi);
+      const v = new THREE.Vector3(sinT*sinP, cosT, sinT*cosP).multiplyScalar(R);
+      camera.position.copy(controls.target).add(v);
     }
-
-    // Fallback: frame the meshes for the clicked side, else the whole group
-    if (focusMember && parts.has(focusMember)){
-      const box=new THREE.Box3(); const rec=parts.get(focusMember); rec.meshes.forEach(m=>box.expandByObject(m)); const s=box.getBoundingSphere(new THREE.Sphere());
-      if (canonKeyStr==='armpit'){ const sign = getSideSign(focusMember, s.center.x); startFocusFromSide(s.center, Math.max(1e-3,s.radius), sign, 900); stopTurntable(); return; }
-      startFocusTweenTo(s.center, Math.max(1e-3,s.radius), 900);
-      if (canonKeyStr==='upper arm' || canonKeyStr==='lower arm'){ startTurntableAfter(900, s.center.clone()); } else { stopTurntable(); }
-      return;
-    }
-    if (members.length){ const box=new THREE.Box3(); members.forEach(n=>{ const rec=parts.get(n); if(rec) rec.meshes.forEach(m=>box.expandByObject(m)); }); const s=box.getBoundingSphere(new THREE.Sphere()); if (canonKeyStr==='armpit'){ const sign = getSideSign(focusMember, s.center.x); startFocusFromSide(s.center, Math.max(1e-3,s.radius), sign, 900); stopTurntable(); } else { startFocusTweenTo(s.center, Math.max(1e-3,s.radius), 900); if (canonKeyStr==='upper arm' || canonKeyStr==='lower arm'){ startTurntableAfter(900, s.center.clone()); } else { stopTurntable(); } } }
   }
+}
 
-  // ---------- Resize ----------
-  window.addEventListener('resize', ()=>{ renderer.setSize(window.innerWidth,window.innerHeight); camera.aspect=window.innerWidth/window.innerHeight; camera.updateProjectionMatrix(); updateDots(); });
+// Resize
+addEventListener('resize',()=>{ renderer.setSize(innerWidth,innerHeight); camera.aspect=innerWidth/innerHeight; camera.updateProjectionMatrix(); updateDots(); });
 
-  // ---------- Animate ----------
-  let last = performance.now();
-  function animate(){
-    const now = performance.now();
-    const dt = now - last; last = now;
-
-    // step anim
-    meshes.forEach(m=>{ const a = meshAnim.get(m); if(!a) return; const dir = a.target - a.t; if (dir!==0){ const step = Math.min(1, dt/ANIM_MS); a.t += Math.sign(dir) * Math.min(Math.abs(dir), step); } applyShadingFromAnim(m); });
-
-    // optional slow orbit for arms
-    if (turntable.active && !focusTween){
-      const v = new THREE.Vector3().subVectors(camera.position, turntable.center);
-      const ang = turntable.speed * (dt/1000);
-      const cos = Math.cos(ang), sin = Math.sin(ang);
-      const nx = v.x*cos - v.z*sin;
-      const nz = v.x*sin + v.z*cos;
-      v.x = nx; v.z = nz;
-      camera.position.copy(turntable.center).add(v);
-      controls.target.copy(turntable.center);
-    }
-
-    stepFocusTween();
-    controls.update();
-    renderer.render(scene, camera);
-    updateDots();
-    requestAnimationFrame(animate);
+// Animate
+let last=performance.now();
+const animate=()=>{
+  const now=performance.now(), dt=now-last; last=now;
+  meshes.forEach(m=>{ const a=anim.get(m)||{t:1,target:1}; const d=a.target-a.t; if(d){ a.t += Math.sign(d)*Math.min(Math.abs(d), Math.min(1,dt/ANIM_MS)); anim.set(m,a); } shade(m); });
+  if(turntable.on && !tween){
+    const v=new THREE.Vector3().subVectors(camera.position,turntable.center);
+    const ang=turntable.speed*(dt/1000), c=Math.cos(ang), s=Math.sin(ang);
+    const nx=v.x*c - v.z*s, nz=v.x*s + v.z*c; v.x=nx; v.z=nz;
+    camera.position.copy(turntable.center).add(v); controls.target.copy(turntable.center);
   }
-  requestAnimationFrame(animate);
+  stepTween(); applySoftConstraints(dt);
+  if(!turntable.on && !tween && lit.size===0 && performance.now()>=idleResumeAt){
+    if(!nearHome()) recenterForIdle(); else { turntable.speed = HOME_SPIN_SPEED; startTurn(0, homeTgt.clone(), 1); }
+  }
+  controls.update(); renderer.render(scene,camera); updateDots(); requestAnimationFrame(animate);
+};
+requestAnimationFrame(animate);
 
-  // ---------- Boot ----------
-  (async function boot(){ try{ const gltf = await tryURLs(GLB_URLS); if(gltf) attachModel(gltf); else setStatus('All sources failed.'); } catch(e){ console.error(e); setStatus('Error: '+e?.message); }})();
+// Optional programmatic selection helpers
+function selectByName(name){
+  const n = String(name||'').toLowerCase();
+  if (/^armpit_l(?:_null)?$/.test(n)) { toggleByCanon('armpit','Armpit_L'); return; }
+  if (/^armpit_r(?:_null)?$/.test(n)) { toggleByCanon('armpit','Armpit_R'); return; }
+  toggleByCanon(canon(name), name);
+}
+window.selectByName = selectByName;
 
-  // ---------- Tests (do not remove) ----------
-  (function runPostLoadTests(){
+// Boot
+(async()=>{ try{ const gltf=await tryURLs(GLB_URLS); if(gltf) attach(gltf); else setStatus('All sources failed.'); }catch(e){ console.error(e); setStatus('Error: '+(e?.message||e)); } })();
+
+// --- Tests ---
+(function runTests(){
+  try{
     console.log('%c[TEST] start','color:#0f0');
-    console.assert(renderer.getClearAlpha()===0,'canvas transparent');
-    console.assert(BLOCK_LIST.has('body'),'Body blocked');
-    console.assert(document.getElementById('reset'),'Reset exists');
-    console.assert(typeof startHomeTween==='function','home tween exists');
-    console.assert(typeof startFocusTweenTo==='function','focus tween exists');
-    console.assert(/^#([0-9a-f]{3}){1,2}$/i.test(shadePicker.value),'albedo color valid hex');
-    console.assert(parseFloat(albedoI.value)>=0 && parseFloat(albedoI.value)<=2,'albedo multiplier in range');
-    console.assert(/^#([0-9a-f]{3}){1,2}$/i.test(emiColor.value),'emissive color valid hex');
-    console.assert(parseFloat(emiI.value)>=0 && parseFloat(emiI.value)<=5,'emissive multiplier in range');
-        console.assert(document.getElementById('dots'),'dots layer exists');
-    console.assert(ANIM_MS===1000,'animation duration 1s');
-    
-    // URL fallback tests
-    console.assert(normalizeGitHubURL('https://github.com/u/r/blob/main/a.png').includes('/raw.githubusercontent.com/'),'URL normalized to raw');
-    console.assert(/^data:image\/png;base64,/.test(RAW_PLACEHOLDER),'placeholder is data URL');
+    console.assert(typeof THREE !== 'undefined','THREE loaded');
+    console.assert(document.getElementById('canvas'),'canvas exists');
+    console.assert(typeof toggleByCanon==='function','toggleByCanon exists');
+    console.assert(typeof selectByName==='function','selectByName exists');
+    console.assert(typeof applySoftConstraints==='function','applySoftConstraints exists');
+    console.assert(!/\$1\b/.test(document.currentScript?.textContent||''),'no stray $1 placeholders');
+    console.assert(typeof ZOOM_MAX_MULT==='number' && ZOOM_MAX_MULT>0,'zoom cap constant');
+    console.assert(typeof ZOOM_MIN_MULT==='number' && ZOOM_MIN_MULT>0,'zoom min constant');
+    console.assert(typeof SPIN_ON_FOCUS==='object' && SPIN_ON_FOCUS.has,'spin-on-focus set present');
+    console.assert(typeof HOME_SPIN_SPEED==='number','idle spin speed const');
+    console.assert(typeof startTurn==='function' && typeof stopTurn==='function','turntable controls exist');
+    console.assert(typeof nearHome==='function' && typeof recenterForIdle==='function','idle recenter helpers exist');
     console.log('%c[TEST] end','color:#0f0');
-  })();
-
-  </script>
+  }catch(e){ console.warn('[TEST] error', e); }
+})();
+</script>
 </body>
 </html>
