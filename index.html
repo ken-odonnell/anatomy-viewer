@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no" />
-<title>Anatomy Viewer</title>
+<title>Anatomy Viewer — compact</title>
 <style>
   html,body{margin:0;height:100%;background:#58606A;color:#0C0F13;font-family:system-ui,Segoe UI,Roboto,Arial,sans-serif}
   #canvas{width:100%;height:100%;display:block}
@@ -100,7 +100,12 @@ const V3 = (...a)=>new THREE.Vector3(...a);
 const canon = s => String(s||'').replace(/([a-z])([A-Z])/g,'$1 $2').replace(/[_-]+/g,' ').replace(/\b(null|left|right|l|r)\b/gi,'').replace(/ +/g,' ').trim().toLowerCase();
 const topPart = o => { let c=o, n=o.name||''; while(c&&c.parent&&c.parent!==root){ if(c.parent.name) n=c.parent.name; c=c.parent; } return n||o.parent?.name||o.name||''; };
 const title = s => (s||'').split(' ').map(w=>w?w[0].toUpperCase()+w.slice(1):'').join(' ');
-const sideToken = s => { const x=String(s||'').toLowerCase(); return /_l\b|left/.test(x)?'l' : /_r\b|right/.test(x)?'r' : null; };
+const sideToken = s => { const x=String(s||'').toLowerCase();
+  // detect side tokens 'l'/'r' even when wrapped with underscores like _L_ or _R_
+  if (/(^|[^a-z0-9])l([^a-z0-9]|$)/i.test(x) || /left/.test(x)) return 'l';
+  if (/(^|[^a-z0-9])r([^a-z0-9]|$)/i.test(x) || /right/.test(x)) return 'r';
+  return null;
+};
 const ghRaw = u => { try{const url=new URL(u,location.href); if(url.hostname==='github.com'){const [user,repo,mode,branch,...rest]=url.pathname.split('/').filter(Boolean); if(['blob','raw','edit','tree'].includes(mode)) return `https://raw.githubusercontent.com/${user}/${repo}/${branch}/${rest.join('/')}`;} }catch{} return u; };
 const urlDir = u => { try{const url=new URL(u); url.pathname=url.pathname.replace(/[^/]*$/,''); return url.href;}catch{return u;} };
 
@@ -415,6 +420,10 @@ window.selectByName = selectByName;
     console.assert(typeof HOME_SPIN_SPEED==='number','idle spin speed const');
     console.assert(typeof startTurn==='function' && typeof stopTurn==='function','turntable controls exist');
     console.assert(typeof nearHome==='function' && typeof recenterForIdle==='function','idle recenter helpers exist');
+    console.assert(sideToken('Armpit_L_Null')==='l','sideToken L null');
+    console.assert(sideToken('Armpit_R_Null')==='r','sideToken R null');
+    console.assert(sideToken('UpperArm_L_Null')==='l','sideToken UL null');
+    console.assert(sideToken('UpperArm_R_Null')==='r','sideToken UR null');
     console.log('%c[TEST] end','color:#0f0');
   }catch(e){ console.warn('[TEST] error', e); }
 })();
