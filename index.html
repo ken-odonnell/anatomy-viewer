@@ -14,9 +14,7 @@
   #dots{position:fixed;inset:0;pointer-events:none;z-index:11}
   .dot{position:absolute;transform:translate(-50%,-50%);pointer-events:auto;cursor:pointer;width:6px;height:6px;border-radius:50%;background:#fff;border:2px solid #000}
   .dot.dim{opacity:.45}
-  .dot.hidden{display:none}
-  #status{position:fixed;left:10px;bottom:10px;background:rgba(0,0,0,.65);color:#fff;padding:6px 8px;border-radius:8px;font-size:12px;max-width:70vw;white-space:pre-wrap;z-index:12}
-</style>
+  .dot.hidden{display:none}</style>
 <script async src="https://unpkg.com/es-module-shims@1.10.0/dist/es-module-shims.js"></script>
 <script type="importmap">{"imports":{
   "three":"https://unpkg.com/three@0.161.0/build/three.module.js",
@@ -31,7 +29,6 @@
       <img class="icon" src="https://raw.githubusercontent.com/ken-odonnell/model-host/main/reset-icon.svg" alt=""> Reset
     </button>
   </div>
-  <div id="status" role="status" aria-live="polite"></div>
 
 <script type="module">
 import * as THREE from 'three';
@@ -44,8 +41,7 @@ const GLB_URLS = ['https://github.com/ken-odonnell/model-host/blob/main/Avatar.g
 const EMISSIVE_FALLBACK = 'https://github.com/ken-odonnell/model-host/blob/main/AvatarTexture.png';
 const HOVER_EMI = 6, EMISSIVE_I = 2, ALBEDO = '#2b2b2b', EMI_COLOR = '#9EDFFF', ANIM_MS = 1000;
 const BLOCK = new Set(['body']);
-const statusEl = document.getElementById('status');
-const setStatus = t => statusEl.textContent = t||'';
+const setStatus = ()=>{};
 
 // Soft-constraint params
 const PAN_SOFT_RADIUS = 0.60;   // as fraction of model radius
