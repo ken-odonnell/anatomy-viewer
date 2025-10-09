@@ -3,9 +3,9 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no" />
-<title>Anatomy Viewer</title>
+<title>Anatomy Viewer — compact</title>
 <style>
-  html,body{margin:0;height:100%;background:#58606A;color:#0C0F13;font-family:system-ui,Segoe UI,Roboto,Arial,sans-serif}
+  html,body{margin:0;height:100%;background:#38231e;color:#0C0F13;font-family:system-ui,Segoe UI,Roboto,Arial,sans-serif}
   #canvas{width:100%;height:100%;display:block}
   #hud{position:fixed;top:10px;right:10px;z-index:12}
   .btn{display:inline-flex;gap:8px;background:#14181f;color:#e6e6e6;border:1px solid #2a3140;border-radius:8px;padding:8px 10px;font-size:14px;cursor:pointer}
@@ -40,13 +40,15 @@ import { KTX2Loader } from 'three/addons/loaders/KTX2Loader.js';
 // Config
 const GLB_URLS = ['https://github.com/ken-odonnell/model-host/blob/main/Avatar.glb'];
 const EMISSIVE_FALLBACK = 'https://github.com/ken-odonnell/model-host/blob/main/AvatarTexture.png';
-const HOVER_EMI = 6, EMISSIVE_I = 2, ALBEDO = '#2b2b2b', EMI_COLOR = '#9EDFFF', ANIM_MS = 1000;
+const HOVER_EMI = 6, EMISSIVE_I = 2, ALBEDO = '#66504a', EMI_COLOR = '#ffd2b2', ANIM_MS = 1000;
 const BLOCK = new Set(['body']);
 
 // Zoom + idle spin
 const ZOOM_MIN_MULT = 0.25;     // min zoom-in distance as multiple of model radius
 const ZOOM_MAX_MULT = 6;        // max zoom-out distance as multiple of model radius
 const HOME_SPIN_SPEED = 0.05;   // rad/s for initial idle rotation
+const SPIN_PULL_RATE = 0.12;    // kept for compatibility (not used in time-based easing)
+const SPIN_PULL_FACTOR = 1.18;  // target multiplier of current radius/distance
 
 // Navigation pitch bands
 const HOME_POLAR_MIN = THREE.MathUtils.degToRad(80);
@@ -71,12 +73,13 @@ renderer.setSize(innerWidth, innerHeight);
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 renderer.toneMapping = THREE.NoToneMapping;
 renderer.setClearColor(0x000000,0);
+renderer.shadowMap.enabled = false;
 
 const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(50, innerWidth/innerHeight, 0.01, 10000);
 const controls = new OrbitControls(camera, renderer.domElement);
 Object.assign(controls,{enableDamping:true,dampingFactor:.06,zoomSpeed:1.6,rotateSpeed:1.2,panSpeed:1.2,minDistance:.02,maxDistance:2000,zoomToCursor:true});
-scene.add(new THREE.HemisphereLight(0xffffff,0x404040,.5));
+const ambient = new THREE.AmbientLight(0xffffff, 1.0); scene.add(ambient);
 
 // State
 let root=null, meshes=[], parts=new Map(), centers=new Map(), anchors=new Map(), dots=new Map();
@@ -86,9 +89,29 @@ let lastClick={ckey:null,anchor:null};
 let softHoldUntil = 0; // pause soft constraints during focus tweens
 let panCenter = null;  // soft pan center (focus anchor)
 let initialSpin = true; // page-load spin only until user input
-const turntable={on:false,center:new THREE.Vector3(),speed:.15,token:0};
-const stopTurn=()=>{turntable.on=false;turntable.token++;};
+const turntable={
+  on:false,
+  center:new THREE.Vector3(),
+  speed:.15,
+  token:0,
+  zoomActive:false,
+  zoomTarget:null,
+  zoomFactor:null,
+  zoomFrom:null,
+  zoomStart:0,
+  zoomDur:0
+};
+const stopTurn=()=>{turntable.on=false;turntable.token++; turntable.zoomActive=false; turntable.zoomTarget=null; turntable.zoomFrom=null; turntable.zoomFactor=null;};
 const startTurn=(ms,center,sign=1)=>{const tok=++turntable.token;setTimeout(()=>{if(turntable.token!==tok)return;turntable.on=true;turntable.center.copy(center);turntable.speed=Math.abs(turntable.speed)*(sign>=0?1:-1);},ms);};
+function enableSpinPullBack(center, partR){
+  // Lazy-capture starting distance at the actual start of the spin to avoid jump
+  turntable.zoomActive = true;
+  turntable.zoomFrom = null;      // set on first spin frame
+  turntable.zoomTarget = null;    // computed from zoomFrom on first spin frame
+  turntable.zoomFactor = SPIN_PULL_FACTOR;
+  turntable.zoomStart = 0;        // set on first spin frame
+  turntable.zoomDur = 2500;       // ms
+}
 
 // Utils
 const V3 = (...a)=>new THREE.Vector3(...a);
@@ -108,9 +131,11 @@ const cloneStd = m => {
     out.color = new THREE.Color(ALBEDO);
     out.emissive = out.emissiveMap ? new THREE.Color(EMI_COLOR) : new THREE.Color(0x000000);
     out.emissiveIntensity = EMISSIVE_I;
-    out.roughness = typeof x?.roughness==='number'?x.roughness:1;
-    out.metalness = typeof x?.metalness==='number'?x.metalness:0;
+    out.roughness = 1; // ignore specular cues
+    out.metalness = 0;
     out.transparent=!!x?.transparent; out.opacity = typeof x?.opacity==='number'?x.opacity:1;
+    // Force flat look: no AO, no light maps, ignore normals and env
+    out.aoMap = null; out.lightMap = null; out.normalMap = null; out.envMap = null;
     return out;
   };
   return Array.isArray(m)?m.map(make):make(m||{});
@@ -252,7 +277,9 @@ const toggleByCanon = (ckey, focusMember=null)=>{
       stopTurn();
     } else if (SPIN_PARTS.has(ckey)){
       focusTo(world, partR, {fromSide:sign});
+      turntable.speed = HOME_SPIN_SPEED;
       startTurn(900, world, -sign);
+      enableSpinPullBack(world, partR);
     } else {
       focusTo(world, partR);
       stopTurn();
@@ -269,7 +296,9 @@ const toggleByCanon = (ckey, focusMember=null)=>{
       stopTurn();
     } else if (SPIN_PARTS.has(ckey)){
       focusTo(c, r, {fromSide:sign});
+      turntable.speed = HOME_SPIN_SPEED;
       startTurn(900, c.clone(), -sign);
+      enableSpinPullBack(c, r);
     } else {
       focusTo(c, r);
       stopTurn();
@@ -355,10 +384,28 @@ const animate=()=>{
   const now=performance.now(), dt=now-last; last=now;
   meshes.forEach(m=>{ const a=anim.get(m)||{t:1,target:1}; const d=a.target-a.t; if(d){ a.t += Math.sign(d)*Math.min(Math.abs(d), Math.min(1,dt/ANIM_MS)); anim.set(m,a); } shade(m); });
   if(turntable.on && !tween){
-    const v=new THREE.Vector3().subVectors(camera.position,turntable.center);
-    const ang=turntable.speed*(dt/1000), c=Math.cos(ang), s=Math.sin(ang);
-    const nx=v.x*c - v.z*s, nz=v.x*s + v.z*c; v.x=nx; v.z=nz;
-    camera.position.copy(turntable.center).add(v); controls.target.copy(turntable.center);
+    const v=new THREE.Vector3().subVectors(camera.position, turntable.center);
+    // Gentle pull-back: start at current distance, then ease out over zoomDur
+    if(turntable.zoomActive){
+      const lenNow = v.length();
+      if(turntable.zoomFrom == null){
+        // Capture starting distance on the first spin frame to avoid jump
+        turntable.zoomFrom = lenNow;
+        turntable.zoomStart = performance.now();
+        const factor = turntable.zoomFactor || SPIN_PULL_FACTOR;
+        turntable.zoomTarget = Math.min(radius*ZOOM_MAX_MULT, lenNow * factor);
+      }
+      const nowTs = performance.now();
+      let t = (nowTs - turntable.zoomStart) / Math.max(1, turntable.zoomDur);
+      if(t >= 1){ turntable.zoomActive = false; t = 1; }
+      const e = t*t*(3-2*t); // smoothstep ease
+      const newLen = THREE.MathUtils.lerp(turntable.zoomFrom, turntable.zoomTarget, e);
+      if(lenNow > 1e-6) v.multiplyScalar(newLen/lenNow);
+    }
+    const ang = turntable.speed * (dt/1000), c = Math.cos(ang), s = Math.sin(ang);
+    const nx = v.x*c - v.z*s, nz = v.x*s + v.z*c; v.x = nx; v.z = nz;
+    camera.position.copy(turntable.center).add(v);
+    controls.target.copy(turntable.center);
   }
   stepTween(); applySoftConstraints(dt); controls.update(); renderer.render(scene,camera); updateDots(); requestAnimationFrame(animate);
 };
@@ -378,6 +425,8 @@ window.selectByName = selectByName;
 
 // --- Tests ---
 (function runTests(){
+  // helper to run after a tick so scene children exist
+  const later = (fn)=>setTimeout(fn,0);
   try{
     console.log('%c[TEST] start','color:#0f0');
     console.assert(typeof THREE !== 'undefined','THREE loaded');
@@ -386,7 +435,21 @@ window.selectByName = selectByName;
     console.assert(typeof selectByName==='function','selectByName exists');
     console.assert(typeof applySoftConstraints==='function','applySoftConstraints exists');
     console.assert(typeof updateNavMode==='function','nav mode updater exists');
+    console.assert(renderer.shadowMap.enabled===false,'shadows disabled');
+    console.assert(scene.children.some(o=>o.isAmbientLight),'ambient light present');
     console.assert(typeof SPIN_PARTS==='object' && SPIN_PARTS.has,'spin parts set present');
+    later(()=>{ // materials present after attach
+      const anyAO = meshes.some(m=>m.material?.aoMap);
+      const anyLightMap = meshes.some(m=>m.material?.lightMap);
+      console.assert(!anyAO,'no AO maps on materials');
+      console.assert(!anyLightMap,'no light maps on materials');
+    });
+    console.assert(typeof enableSpinPullBack==='function','spin pull-back helper exists');
+    console.assert(typeof startTurn==='function','startTurn exists');
+    console.assert(!/\$1\b/.test(document.currentScript?.textContent||''),'no stray $1 placeholders');
+    console.assert(turntable.zoomDur===2500,'spin pull-back duration set');
+    { const prev={active:turntable.zoomActive,from:turntable.zoomFrom,target:turntable.zoomTarget}; enableSpinPullBack(homeTgt, radius); console.assert(turntable.zoomFrom===null && turntable.zoomTarget===null,'lazy pull-back seeds on first spin frame'); turntable.zoomActive=prev.active; turntable.zoomFrom=prev.from; turntable.zoomTarget=prev.target; }
+    console.assert('zoomFactor' in turntable,'lazy zoom factor present');
     console.assert(sideToken('Armpit_L_Null')==='l','sideToken L null');
     console.assert(sideToken('Armpit_R_Null')==='r','sideToken R null');
     console.assert(sideToken('UpperArm_L_Null')==='l','sideToken UL null');
