@@ -3,7 +3,10 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no" />
-<title>Anatomy Viewer — compact</title>
+<title>Anatomy Viewer</title>
+<link rel="preconnect" href="https://unpkg.com">
+<link rel="preconnect" href="https://raw.githubusercontent.com">
+<link rel="preconnect" href="https://github.com">
 <style>
   html,body{margin:0;height:100%;background:#38231e;color:#0C0F13;font-family:system-ui,Segoe UI,Roboto,Arial,sans-serif}
   #canvas{width:100%;height:100%;display:block}
@@ -15,6 +18,12 @@
   .dot{position:absolute;transform:translate(-50%,-50%);pointer-events:auto;cursor:pointer;width:6px;height:6px;border-radius:50%;background:#fff;border:2px solid #000}
   .dot.dim{opacity:.45}
   .dot.hidden{display:none}
+  /* Loading overlay */
+  #loading{position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;background:#38231e;z-index:1000;transition:opacity .25s ease}
+  #loading.hidden{opacity:0;pointer-events:none}
+  .spinner{width:48px;height:48px;border-radius:50%;border:3px solid rgba(255,255,255,.25);border-top-color:#fff;animation:spin 1s linear infinite}
+  #progress{font:500 14px/1 system-ui,Segoe UI,Roboto,Arial,sans-serif;color:#e6e6e6;opacity:.9}
+  @keyframes spin{to{transform:rotate(360deg)}}
 </style>
 <script async src="https://unpkg.com/es-module-shims@1.10.0/dist/es-module-shims.js"></script>
 <script type="importmap">{"imports":{
@@ -23,6 +32,10 @@
 }}</script>
 </head>
 <body>
+  <div id="loading" aria-live="polite" aria-busy="true">
+    <div class="spinner" aria-hidden="true"></div>
+    <div id="progress">0%</div>
+  </div>
   <canvas id="canvas"></canvas>
   <div id="dots"></div>
   <div id="hud">
@@ -37,10 +50,23 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { KTX2Loader } from 'three/addons/loaders/KTX2Loader.js';
 
+// DOM: loading overlay
+const loadingEl = document.getElementById('loading');
+const progressEl = document.getElementById('progress');
+
+// Global loading manager to drive the overlay
+const LMGR = new THREE.LoadingManager();
+LMGR.onStart = ()=>{ loadingEl.classList.remove('hidden'); progressEl.textContent='0%'; };
+LMGR.onProgress = (_url, loaded, total)=>{
+  progressEl.textContent = total ? Math.round(loaded/total*100) + '%' : 'Loading';
+};
+LMGR.onError = (u)=>{ progressEl.textContent = 'Load error'; console.warn('Error loading', u); };
+LMGR.onLoad = ()=>{ setTimeout(()=> loadingEl.classList.add('hidden'), 120); };
+
 // Config
 const GLB_URLS = ['https://github.com/ken-odonnell/model-host/blob/main/Avatar.glb'];
 const EMISSIVE_FALLBACK = 'https://github.com/ken-odonnell/model-host/blob/main/AvatarTexture.png';
-const HOVER_EMI = 6, EMISSIVE_I = 2, ALBEDO = '#66504a', EMI_COLOR = '#ffd2b2', ANIM_MS = 1000;
+const HOVER_EMI = 8, EMISSIVE_I = 4, ALBEDO = '#66504a', EMI_COLOR = '#ffd2b2', ANIM_MS = 1000; 
 const BLOCK = new Set(['body']);
 
 // Zoom + idle spin
@@ -67,8 +93,8 @@ const PITCH_PULL = 0.12;        // easing toward allowed pitch
 const SPIN_PARTS = new Set(['lower arm','upper arm','inner thigh','outer thigh','banana roll','bananaroll','flank','flanks']);
 
 // Renderer/scene
-const renderer = new THREE.WebGLRenderer({ canvas:document.getElementById('canvas'), antialias:true, alpha:true });
-renderer.setPixelRatio(Math.min(devicePixelRatio,2));
+const renderer = new THREE.WebGLRenderer({ canvas:document.getElementById('canvas'), antialias:true, alpha:true, powerPreference:'high-performance' });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio||1, 1.5));
 renderer.setSize(innerWidth, innerHeight);
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 renderer.toneMapping = THREE.NoToneMapping;
@@ -104,7 +130,6 @@ const turntable={
 const stopTurn=()=>{turntable.on=false;turntable.token++; turntable.zoomActive=false; turntable.zoomTarget=null; turntable.zoomFrom=null; turntable.zoomFactor=null;};
 const startTurn=(ms,center,sign=1)=>{const tok=++turntable.token;setTimeout(()=>{if(turntable.token!==tok)return;turntable.on=true;turntable.center.copy(center);turntable.speed=Math.abs(turntable.speed)*(sign>=0?1:-1);},ms);};
 function enableSpinPullBack(center, partR){
-  // Lazy-capture starting distance at the actual start of the spin to avoid jump
   turntable.zoomActive = true;
   turntable.zoomFrom = null;      // set on first spin frame
   turntable.zoomTarget = null;    // computed from zoomFrom on first spin frame
@@ -307,13 +332,13 @@ const toggleByCanon = (ckey, focusMember=null)=>{
 };
 
 // Loader + attach
-const makeLoader=()=>{ const mgr=new THREE.LoadingManager(); const ktx2=new KTX2Loader(mgr).setTranscoderPath('https://unpkg.com/three@0.161.0/examples/jsm/libs/basis/').detectSupport(renderer); const ld=new GLTFLoader(mgr); ld.setCrossOrigin('anonymous'); ld.setKTX2Loader(ktx2); return {ld,mgr}; };
+const makeLoader=()=>{ const ktx2=new KTX2Loader(LMGR).setTranscoderPath('https://unpkg.com/three@0.161.0/examples/jsm/libs/basis/').detectSupport(renderer); const ld=new GLTFLoader(LMGR); ld.setCrossOrigin('anonymous'); ld.setKTX2Loader(ktx2); return {ld,mgr:LMGR}; };
 const loadGLB=async url=>{
   const base=urlDir(ghRaw(url));
-  try{ const {ld,mgr}=makeLoader(); mgr.setURLModifier(u=>ghRaw(u)); ld.setResourcePath(base); const g=await ld.loadAsync(ghRaw(url)); return g; }
+  try{ const {ld}=makeLoader(); LMGR.setURLModifier(u=>ghRaw(u)); ld.setResourcePath(base); const g=await ld.loadAsync(ghRaw(url)); return g; }
   catch{
     const tryMap=[EMISSIVE_FALLBACK,'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMB/6XK5NQAAAAASUVORK5CYII='];
-    for(const tex of tryMap){ try{ const {ld,mgr}=makeLoader(); mgr.setURLModifier(u=>/\.(png|jpe?g|webp|ktx2)$/i.test(ghRaw(u))? ghRaw(tex) : ghRaw(u)); ld.setResourcePath(base); const g=await ld.loadAsync(ghRaw(url)); return g; }catch{} }
+    for(const tex of tryMap){ try{ const {ld}=makeLoader(); LMGR.setURLModifier(u=>(/\.(png|jpe?g|webp|ktx2)$/i.test(ghRaw(u))? ghRaw(tex) : ghRaw(u))); ld.setResourcePath(base); const g=await ld.loadAsync(ghRaw(url)); return g; }catch{} }
     throw new Error('All retries failed');
   }
 };
@@ -326,6 +351,8 @@ const attach= gltf=>{
   computeCenters(); buildDots(); frameRoot(); updateTargets(); updateNavMode();
   // initial page-load spin only
   if(initialSpin) { turntable.speed = HOME_SPIN_SPEED; startTurn(0, homeTgt.clone(), 1); }
+  // ensure overlay hides on first attach too
+  loadingEl.classList.add('hidden');
 };
 
 // Picking + hover
@@ -421,11 +448,10 @@ function selectByName(name){
 window.selectByName = selectByName;
 
 // Boot
-(async()=>{ try{ const gltf=await tryURLs(GLB_URLS); if(gltf) attach(gltf); }catch(e){ console.error(e); } })();
+(async()=>{ try{ const gltf=await tryURLs(GLB_URLS); if(gltf) attach(gltf); else progressEl.textContent='Load error'; }catch(e){ console.error(e); progressEl.textContent='Load error'; } })();
 
 // --- Tests ---
 (function runTests(){
-  // helper to run after a tick so scene children exist
   const later = (fn)=>setTimeout(fn,0);
   try{
     console.log('%c[TEST] start','color:#0f0');
